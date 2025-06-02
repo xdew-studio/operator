@@ -261,7 +261,7 @@ class XDEWOperator:
             if not project:
                 return
                 
-            project_name = project["metadata"]["name"]  
+            project_name = project["metadata"]["name"]  # metadata.name is the project ID
             
             namespaces = self.custom_api.list_cluster_custom_object(
                 group="xdew.ch",
@@ -294,64 +294,55 @@ class XDEWOperator:
 operator = XDEWOperator()
 
 @kopf.on.create('xdew.ch', 'v1', 'projects')
-def create_project(spec, name, uid, status, **kwargs):
+def create_project(spec, name, uid, patch, **kwargs):
     logger.info(f"Creating project: {name}")
     
     project_name = spec.get('name')
     user_id = spec.get('userId')
     description = spec.get('description', '')
     
+    # Update status using patch
+    patch.status['createdAt'] = datetime.now(timezone.utc).isoformat()
+    patch.status['namespacesCount'] = 0
     
-    status['createdAt'] = datetime.now(timezone.utc).isoformat()
-    status['namespacesCount'] = 0
-    
-    return {"message": f"Project {name} created successfully"}
+    logger.info(f"Project {name} created successfully")
+    # Don't return anything to avoid status conflicts
+    return None
 
 @kopf.on.create('xdew.ch', 'v1', 'namespaces')
-def create_namespace(spec, name, uid, status, **kwargs):
+def create_namespace(spec, name, uid, patch, **kwargs):
     logger.info(f"Creating namespace: {name}")
     
-    namespace_id = spec.get('id')
-    namespace_name = spec.get('name')
+    namespace_id = name  # metadata.name is the namespace ID
+    display_name = spec.get('displayName')
     project_id = spec.get('projectId')
     description = spec.get('description', '')
     resource_quota = spec.get('resourceQuota', {})
     
     project_info = operator.get_project_by_id(project_id)
     if not project_info:
-        status['state'] = "rejected"
-        status['message'] = f"Project {project_id} not found"
-        status['createdAt'] = datetime.now(timezone.utc).isoformat()
-        return {"message": f"Project {project_id} not found"}
+        patch.status['state'] = "rejected"
+        patch.status['message'] = f"Project {project_id} not found"
+        patch.status['createdAt'] = datetime.now(timezone.utc).isoformat()
+        logger.warning(f"Project {project_id} not found for namespace {name}")
+        return None
     
     if not resource_quota:
         resource_quota = operator.get_default_resource_quota()
         
-        patch_body = {
-            "spec": {
-                "resourceQuota": resource_quota
-            }
-        }
-        try:
-            operator.custom_api.patch_cluster_custom_object(
-                group="xdew.ch",
-                version="v1", 
-                plural="namespaces",
-                name=name,
-                body=patch_body
-            )
-            logger.info(f"Patched namespace with default resource quota: {name}")
-        except Exception as e:
-            logger.error(f"Failed to patch namespace: {e}")
+        # Update spec with default resource quota
+        patch.spec['resourceQuota'] = resource_quota
+        logger.info(f"Applied default resource quota to namespace: {name}")
     
-    
-    status['state'] = "requested"
-    status['message'] = "Namespace creation requested"
-    status['createdAt'] = datetime.now(timezone.utc).isoformat()
+    # Update status using patch
+    patch.status['state'] = "requested"
+    patch.status['message'] = "Namespace creation requested"
+    patch.status['createdAt'] = datetime.now(timezone.utc).isoformat()
     
     operator.update_project_namespace_count(project_id)
     
-    return {"message": f"Namespace {namespace_id} created in requested state"}
+    logger.info(f"Namespace {namespace_id} created in requested state")
+    return None
 
 @kopf.on.field('xdew.ch', 'v1', 'namespaces', field='status.state')
 def handle_namespace_state_change(old, new, spec, name, uid, **kwargs):
@@ -359,8 +350,8 @@ def handle_namespace_state_change(old, new, spec, name, uid, **kwargs):
     
     if new == "accepted":
         try:
-            namespace_id = spec.get('id')
-            namespace_name = spec.get('name')
+            namespace_id = name  # metadata.name is the namespace ID
+            display_name = spec.get('displayName')
             project_id = spec.get('projectId')
             resource_quota = spec.get('resourceQuota', operator.get_default_resource_quota())
             
@@ -382,7 +373,7 @@ def handle_namespace_state_change(old, new, spec, name, uid, **kwargs):
                 "uid": uid
             }
             
-            operator.create_kubernetes_namespace(k8s_namespace_name, project_id, namespace_name, owner_ref, project_info)
+            operator.create_kubernetes_namespace(k8s_namespace_name, project_id, display_name, owner_ref, project_info)
             operator.create_resource_quota(k8s_namespace_name, resource_quota, owner_ref)
             operator.create_rbac_resources(k8s_namespace_name, project_id, namespace_id, owner_ref)
             
@@ -423,23 +414,21 @@ def handle_namespace_state_change(old, new, spec, name, uid, **kwargs):
             logger.error(f"Failed to delete resources for namespace {name}: {e}")
 
 @kopf.on.delete('xdew.ch', 'v1', 'namespaces')
-def delete_namespace(spec, name, **kwargs):
+def delete_namespace(spec, name, patch, **kwargs):
     logger.info(f"Deleting namespace: {name}")
     
     project_id = spec.get('projectId')
     
-    status_update = {
-        "state": "deleted",
-        "message": "Namespace deletion in progress"
-    }
-    operator.update_namespace_status(name, status_update)
+    patch.status['state'] = "deleted"
+    patch.status['message'] = "Namespace deletion in progress"
+    
     operator.update_project_namespace_count(project_id)
 
 @kopf.on.delete('xdew.ch', 'v1', 'projects')
 def delete_project(spec, name, **kwargs):
     logger.info(f"Deleting project: {name}")
     
-    project_id = name  
+    project_id = name  # metadata.name is the project ID
     
     namespaces = operator.custom_api.list_cluster_custom_object(
         group="xdew.ch",
