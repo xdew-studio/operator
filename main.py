@@ -230,11 +230,11 @@ class RBACManager(ResourceManager):
                 owner_references=[kubernetes.client.V1OwnerReference(**owner_ref)]
             ),
             subjects=[
-                kubernetes.client.V1Subject(
-                    kind="Group",
-                    name=f"xdew-project-{project_id}-admins",
-                    api_group="rbac.authorization.k8s.io"
-                )
+                {
+                    "kind": "Group",
+                    "name": f"xdew-project-{project_id}-admins",
+                    "api_group": "rbac.authorization.k8s.io"
+                }
             ],
             role_ref=kubernetes.client.V1RoleRef(
                 kind="Role",
@@ -268,11 +268,11 @@ class RBACManager(ResourceManager):
                 owner_references=[kubernetes.client.V1OwnerReference(**owner_ref)]
             ),
             subjects=[
-                kubernetes.client.V1Subject(
-                    kind="Group",
-                    name=f"xdew-project-{project_id}-readonly",
-                    api_group="rbac.authorization.k8s.io"
-                )
+                {
+                    "kind": "Group",
+                    "name": f"xdew-project-{project_id}-readonly",
+                    "api_group": "rbac.authorization.k8s.io"
+                }
             ],
             role_ref=kubernetes.client.V1RoleRef(
                 kind="Role",
@@ -473,31 +473,31 @@ class XDEWOperator:
             logger.error(f"Failed to update project status: {e}")
     
     def update_namespace_status(self, name: str, status_update: Dict[str, Any]) -> None:
-        """Update namespace status."""
+        """Update workspace status."""
         try:
-            namespace = self.custom_api.get_cluster_custom_object(
+            workspace = self.custom_api.get_cluster_custom_object(
                 group="xdew.ch",
                 version="v1",
-                plural="namespaces",
+                plural="workspaces",
                 name=name
             )
             
-            if "status" not in namespace:
-                namespace["status"] = {}
+            if "status" not in workspace:
+                workspace["status"] = {}
             
-            namespace["status"].update(status_update)
-            namespace["status"]["lastUpdated"] = datetime.now(timezone.utc).isoformat()
+            workspace["status"].update(status_update)
+            workspace["status"]["lastUpdated"] = datetime.now(timezone.utc).isoformat()
             
             self.custom_api.patch_cluster_custom_object(
                 group="xdew.ch",
                 version="v1",
-                plural="namespaces",
+                plural="workspaces",
                 name=name,
-                body=namespace
+                body=workspace
             )
-            logger.info(f"Updated namespace status: {name}")
+            logger.info(f"Updated workspace status: {name}")
         except Exception as e:
-            logger.error(f"Failed to update namespace status: {e}")
+            logger.error(f"Failed to update workspace status: {e}")
     
     def update_project_namespace_count(self, project_id: str) -> None:
         """Update the namespace count for a project."""
@@ -586,7 +586,7 @@ def create_workspace(spec, name, patch, **kwargs):
     
     try:
         # Extract namespace information
-        display_name = spec.get('name', '')
+        display_name = spec.get('displayName', spec.get('name', ''))
         project_id = spec.get('projectId')
         description = spec.get('description', '')
         resource_quota_spec = spec.get('resourceQuota', {})
@@ -638,7 +638,7 @@ def _handle_workspace_acceptance(spec, name, uid):
     """Handle workspace acceptance logic."""
     try:
         # Extract namespace information
-        display_name = spec.get('name', '')
+        display_name = spec.get('displayName', spec.get('name', ''))
         project_id = spec.get('projectId')
         resource_quota_spec = spec.get('resourceQuota', {})
         
