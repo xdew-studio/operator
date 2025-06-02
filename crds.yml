@@ -5,57 +5,57 @@ metadata:
 spec:
   group: xdew.ch
   versions:
-  - name: v1
-    served: true
-    storage: true
-    schema:
-      openAPIV3Schema:
-        type: object
-        properties:
-          spec:
-            type: object
-            properties:
-              id:
-                type: string
-                description: "Unique project identifier"
-              name:
-                type: string
-                description: "Project name"
-              description:
-                type: string
-                description: "Project description"
-              userId:
-                type: string
-                description: "Owner user ID"
-            required:
-            - id
-            - name
-            - userId
-          status:
-            type: object
-            properties:
-              createdAt:
-                type: string
-                format: date-time
-              lastUpdated:
-                type: string
-                format: date-time
-              namespacesCount:
-                type: integer
-                default: 0
-    additionalPrinterColumns:
-    - name: ID
-      type: string
-      jsonPath: .spec.id
-    - name: Owner
-      type: string
-      jsonPath: .spec.userId
-    - name: Namespaces
-      type: integer
-      jsonPath: .status.namespacesCount
-    - name: Age
-      type: date
-      jsonPath: .metadata.creationTimestamp
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                id:
+                  type: string
+                  description: "Unique project identifier"
+                name:
+                  type: string
+                  description: "Project name"
+                description:
+                  type: string
+                  description: "Project description"
+                userId:
+                  type: string
+                  description: "Owner user ID"
+              required:
+                - id
+                - name
+                - userId
+            status:
+              type: object
+              properties:
+                createdAt:
+                  type: string
+                  format: date-time
+                lastUpdated:
+                  type: string
+                  format: date-time
+                namespacesCount:
+                  type: integer
+                  default: 0
+      additionalPrinterColumns:
+        - name: ID
+          type: string
+          jsonPath: .spec.id
+        - name: Owner
+          type: string
+          jsonPath: .spec.userId
+        - name: Namespaces
+          type: integer
+          jsonPath: .status.namespacesCount
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
   scope: Cluster
   names:
     plural: projects
@@ -69,83 +69,80 @@ metadata:
 spec:
   group: xdew.ch
   versions:
-  - name: v1
-    served: true
-    storage: true
-    schema:
-      openAPIV3Schema:
-        type: object
-        properties:
-          spec:
-            type: object
-            properties:
-              id:
-                type: string
-                description: "Unique namespace identifier"
-              name:
-                type: string
-                description: "Namespace name"
-              description:
-                type: string
-                description: "Namespace description"
-              projectId:
-                type: string
-                description: "Parent project ID"
-              resourceQuota:
-                type: object
-                properties:
-                  cpu:
-                    type: string
-                    default: "2"
-                  memory:
-                    type: string
-                    default: "4Gi"
-                  storage:
-                    type: string
-                    default: "10Gi"
-                  persistentVolumeClaims:
-                    type: string
-                    default: "5"
-                  pods:
-                    type: string
-                    default: "10"
-            required:
-            - id
-            - name
-            - projectId
-          status:
-            type: object
-            properties:
-              state:
-                type: string
-                enum: ["requested", "accepted", "rejected", "deleted"]
-                default: "requested"
-              message:
-                type: string
-              kubernetesNamespace:
-                type: string
-              createdAt:
-                type: string
-                format: date-time
-              lastUpdated:
-                type: string
-                format: date-time
-    additionalPrinterColumns:
-    - name: ID
-      type: string
-      jsonPath: .spec.id
-    - name: State
-      type: string
-      jsonPath: .status.state
-    - name: Project
-      type: string
-      jsonPath: .spec.projectId
-    - name: K8s Namespace
-      type: string
-      jsonPath: .status.kubernetesNamespace
-    - name: Age
-      type: date
-      jsonPath: .metadata.creationTimestamp
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                id:
+                  type: string
+                  description: "Unique namespace identifier"
+                name:
+                  type: string
+                  description: "Namespace name"
+                description:
+                  type: string
+                  description: "Namespace description"
+                projectId:
+                  type: string
+                  description: "Parent project ID"
+                resourceQuota:
+                  type: object
+                  properties:
+                    cpu:
+                      type: string
+                      default: "2"
+                    memory:
+                      type: string
+                      default: "4Gi"
+                    storage:
+                      type: string
+                      default: "10Gi"
+                    pods:
+                      type: string
+                      default: "10"
+              required:
+                - id
+                - name
+                - projectId
+            status:
+              type: object
+              properties:
+                state:
+                  type: string
+                  enum: ["requested", "accepted", "rejected", "deleted"]
+                  default: "requested"
+                message:
+                  type: string
+                kubernetesNamespace:
+                  type: string
+                createdAt:
+                  type: string
+                  format: date-time
+                lastUpdated:
+                  type: string
+                  format: date-time
+      additionalPrinterColumns:
+        - name: ID
+          type: string
+          jsonPath: .spec.id
+        - name: State
+          type: string
+          jsonPath: .status.state
+        - name: Project
+          type: string
+          jsonPath: .spec.projectId
+        - name: K8s Namespace
+          type: string
+          jsonPath: .status.kubernetesNamespace
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
   scope: Cluster
   names:
     plural: namespaces
