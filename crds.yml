@@ -15,12 +15,9 @@ spec:
             spec:
               type: object
               properties:
-                id:
-                  type: string
-                  description: "Unique project identifier"
                 name:
                   type: string
-                  description: "Project name"
+                  description: "Project display name"
                 description:
                   type: string
                   description: "Project description"
@@ -28,7 +25,6 @@ spec:
                   type: string
                   description: "Owner user ID"
               required:
-                - id
                 - name
                 - userId
             status:
@@ -44,13 +40,13 @@ spec:
                   type: integer
                   default: 0
       additionalPrinterColumns:
-        - name: ID
+        - name: Display Name
           type: string
-          jsonPath: .spec.id
+          jsonPath: .spec.name
         - name: Owner
           type: string
           jsonPath: .spec.userId
-        - name: Namespaces
+        - name: Workspaces
           type: integer
           jsonPath: .status.namespacesCount
         - name: Age
@@ -65,7 +61,7 @@ spec:
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
-  name: namespaces.xdew.ch
+  name: workspaces.xdew.ch
 spec:
   group: xdew.ch
   versions:
@@ -79,18 +75,15 @@ spec:
             spec:
               type: object
               properties:
-                id:
-                  type: string
-                  description: "Unique namespace identifier"
                 name:
                   type: string
-                  description: "Namespace name"
+                  description: "Workspace display name"
                 description:
                   type: string
-                  description: "Namespace description"
+                  description: "Workspace description"
                 projectId:
                   type: string
-                  description: "Parent project ID"
+                  description: "Parent project ID (metadata.name)"
                 resourceQuota:
                   type: object
                   properties:
@@ -107,7 +100,6 @@ spec:
                       type: string
                       default: "10"
               required:
-                - id
                 - name
                 - projectId
             status:
@@ -128,9 +120,9 @@ spec:
                   type: string
                   format: date-time
       additionalPrinterColumns:
-        - name: ID
+        - name: Display Name
           type: string
-          jsonPath: .spec.id
+          jsonPath: .spec.name
         - name: State
           type: string
           jsonPath: .status.state
@@ -145,6 +137,6 @@ spec:
           jsonPath: .metadata.creationTimestamp
   scope: Cluster
   names:
-    plural: namespaces
-    singular: namespace
-    kind: Namespace
+    plural: workspaces
+    singular: workspace
+    kind: Workspace
