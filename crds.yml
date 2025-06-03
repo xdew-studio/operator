@@ -30,15 +30,33 @@ spec:
             status:
               type: object
               properties:
-                createdAt:
+                currentState:
                   type: string
-                  format: date-time
+                  description: "Current project state"
                 lastUpdated:
                   type: string
                   format: date-time
                 namespacesCount:
                   type: integer
                   default: 0
+                history:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      timestamp:
+                        type: string
+                        format: date-time
+                      state:
+                        type: string
+                      message:
+                        type: string
+                      user:
+                        type: string
+                    required:
+                      - timestamp
+                      - state
+                      - message
       additionalPrinterColumns:
         - name: Display Name
           type: string
@@ -46,6 +64,9 @@ spec:
         - name: Owner
           type: string
           jsonPath: .spec.userId
+        - name: State
+          type: string
+          jsonPath: .status.currentState
         - name: Workspaces
           type: integer
           jsonPath: .status.namespacesCount
@@ -57,6 +78,7 @@ spec:
     plural: projects
     singular: project
     kind: Project
+
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
@@ -84,6 +106,9 @@ spec:
                 projectId:
                   type: string
                   description: "Parent project ID (metadata.name)"
+                  x-kubernetes-validations:
+                    - rule: "self == oldSelf"
+                      message: "projectId is immutable"
                 resourceQuota:
                   type: object
                   properties:
@@ -105,33 +130,41 @@ spec:
             status:
               type: object
               properties:
-                state:
+                currentState:
                   type: string
                   enum: ["requested", "accepted", "rejected", "deleted"]
                   default: "requested"
-                message:
-                  type: string
-                kubernetesNamespace:
-                  type: string
-                createdAt:
-                  type: string
-                  format: date-time
                 lastUpdated:
                   type: string
                   format: date-time
+                history:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      timestamp:
+                        type: string
+                        format: date-time
+                      state:
+                        type: string
+                      message:
+                        type: string
+                      user:
+                        type: string
+                    required:
+                      - timestamp
+                      - state
+                      - message
       additionalPrinterColumns:
         - name: Display Name
           type: string
           jsonPath: .spec.name
         - name: State
           type: string
-          jsonPath: .status.state
+          jsonPath: .status.currentState
         - name: Project
           type: string
           jsonPath: .spec.projectId
-        - name: K8s Namespace
-          type: string
-          jsonPath: .status.kubernetesNamespace
         - name: Age
           type: date
           jsonPath: .metadata.creationTimestamp
