@@ -147,7 +147,7 @@ class NamespaceManager(ResourceManager):
                     name=workspace_name,
                     labels={
                         "app.kubernetes.io/managed-by": "xdew-operator",
-                        "app.kubernetes.io/name": workspace_name,
+                        "app.kubernetes.io/name": workspace_name
                     },
                     owner_references=[kubernetes.client.V1OwnerReference(**owner_ref)]
                 )
@@ -157,7 +157,7 @@ class NamespaceManager(ResourceManager):
             return True
         except ApiException as e:
             logger.error(f"[{workspace_name}]   ↳ Failed to create namespace: {e}")
-            return Falsexdew
+            return False
     
     def delete(self, workspace_name: str) -> bool:
         """Delete a Kubernetes namespace."""
@@ -652,18 +652,16 @@ def create_project(spec, name, patch, **kwargs):
             return
         
         # Initialize status
-        patch.status = {
-            "currentState": "created",
-            "lastUpdated": datetime.now(timezone.utc).isoformat(),
-            "namespacesCount": 0,
-            "history": [
-                {
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "state": "created",
-                    "message": f"Project '{project_name}' created by {user_id}"
-                }
-            ]
-        }
+        patch.status['currentState'] = "created"
+        patch.status['lastUpdated'] = datetime.now(timezone.utc).isoformat()
+        patch.status['namespacesCount'] = 0
+        patch.status['history'] = [
+            {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "state": "created",
+                "message": f"Project '{project_name}' created by {user_id}"
+            }
+        ]
         
         logger.info(f"[{name}]   ↳ Project created successfully")
         
@@ -688,17 +686,15 @@ def create_workspace(spec, name, patch, uid, **kwargs):
         project_info = operator.get_project_by_id(project_id)
         if not project_info:
             message = f"Project {project_id} not found"
-            patch.status = {
-                "currentState": NamespaceState.REJECTED.value,
-                "lastUpdated": datetime.now(timezone.utc).isoformat(),
-                "history": [
-                    {
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
-                        "state": NamespaceState.REJECTED.value,
-                        "message": message
-                    }
-                ]
-            }
+            patch.status['currentState'] = NamespaceState.REJECTED.value
+            patch.status['lastUpdated'] = datetime.now(timezone.utc).isoformat()
+            patch.status['history'] = [
+                {
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "state": NamespaceState.REJECTED.value,
+                    "message": message
+                }
+            ]
             logger.warning(f"[{name}]   ↳ {message}")
             return
         
@@ -711,8 +707,9 @@ def create_workspace(spec, name, patch, uid, **kwargs):
         }
         
         if project_ref["uid"]:
-            patch.metadata = patch.metadata or {}
-            patch.metadata["ownerReferences"] = [project_ref]
+            if not hasattr(patch, 'metadata') or patch.metadata is None:
+                patch.metadata = {}
+            patch.metadata['ownerReferences'] = [project_ref]
         
         # Set default resource quota if not provided
         if not resource_quota_spec:
@@ -721,36 +718,32 @@ def create_workspace(spec, name, patch, uid, **kwargs):
             logger.info(f"[{name}]   ↳ Applied default resource quota")
         
         # Initialize status
-        patch.status = {
-            "currentState": NamespaceState.REQUESTED.value,
-            "lastUpdated": datetime.now(timezone.utc).isoformat(),
-            "history": [
-                {
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "state": NamespaceState.REQUESTED.value,
-                    "message": f"Workspace '{display_name}' creation requested"
-                }
-            ]
-        }
+        patch.status['currentState'] = NamespaceState.REQUESTED.value
+        patch.status['lastUpdated'] = datetime.now(timezone.utc).isoformat()
+        patch.status['history'] = [
+            {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "state": NamespaceState.REQUESTED.value,
+                "message": f"Workspace '{display_name}' creation requested"
+            }
+        ]
         
         # Update project namespace count
         operator.update_project_namespace_count(project_id)
         
-        logger.info(f"[{name}]   ↳ Workspace created in requested state")
+        logger.info(f"[{name}] Workspace created in requested state")
         
     except Exception as e:
         logger.error(f"[{name}]   ↳ Failed to create workspace: {e}")
-        patch.status = {
-            "currentState": NamespaceState.REJECTED.value,
-            "lastUpdated": datetime.now(timezone.utc).isoformat(),
-            "history": [
-                {
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "state": NamespaceState.REJECTED.value,
-                    "message": f"Creation failed: {str(e)}"
-                }
-            ]
-        }
+        patch.status['currentState'] = NamespaceState.REJECTED.value
+        patch.status['lastUpdated'] = datetime.now(timezone.utc).isoformat()
+        patch.status['history'] = [
+            {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "state": NamespaceState.REJECTED.value,
+                "message": f"Creation failed: {str(e)}"
+            }
+        ]
 
 
 @kopf.on.field('xdew.ch', 'v1', 'workspaces', field='status.currentState')
