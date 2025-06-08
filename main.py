@@ -166,9 +166,24 @@ class NamespaceManager(ResourceManager):
     def __init__(self, v1_client: kubernetes.client.CoreV1Api):
         self.v1 = v1_client
     
+    def exists(self, workspace_name: str) -> bool:
+        """Check if the namespace exists"""
+        try:
+            self.v1.read_namespace(workspace_name)
+            return True
+        except ApiException as e:
+            if e.status == 404:
+                return False
+            logger.error(f"[{workspace_name}] Error checking namespace existence: {e}")
+            return False
+    
     def create(self, workspace_name: str, workspace_info: WorkspaceInfo, 
                owner_ref: Dict[str, Any]) -> bool:
         try:
+            if self.exists(workspace_name):
+                logger.info(f"[{workspace_name}] Namespace already exists, skipping creation")
+                return True
+                
             logger.info(f"[{workspace_name}] Creating namespace")
             
             namespace = kubernetes.client.V1Namespace(
@@ -197,6 +212,10 @@ class NamespaceManager(ResourceManager):
     
     def delete(self, workspace_name: str) -> bool:
         try:
+            if not self.exists(workspace_name):
+                logger.info(f"[{workspace_name}] Namespace doesn't exist, nothing to delete")
+                return True
+                
             logger.info(f"[{workspace_name}] Deleting namespace")
             self.v1.delete_namespace(workspace_name)
             logger.info(f"[{workspace_name}]   ↳ Namespace deleted successfully")
@@ -214,9 +233,27 @@ class ResourceQuotaManager(ResourceManager):
     def __init__(self, v1_client: kubernetes.client.CoreV1Api):
         self.v1 = v1_client
     
+    def exists(self, workspace_name: str) -> bool:
+        """Check if the resource quota exists"""
+        try:
+            self.v1.read_namespaced_resource_quota(
+                name="xdew-quota",
+                namespace=workspace_name
+            )
+            return True
+        except ApiException as e:
+            if e.status == 404:
+                return False
+            logger.error(f"[{workspace_name}] Error checking resource quota existence: {e}")
+            return False
+    
     def create(self, workspace_name: str, quota: ResourceQuota,
                owner_ref: Dict[str, Any]) -> bool:
         try:
+            if self.exists(workspace_name):
+                logger.info(f"[{workspace_name}] Resource quota already exists, updating instead")
+                return self.update(workspace_name, quota)
+                
             logger.info(f"[{workspace_name}] Creating resource quota")
             
             resource_quota = kubernetes.client.V1ResourceQuota(
@@ -243,6 +280,10 @@ class ResourceQuotaManager(ResourceManager):
     
     def update(self, workspace_name: str, quota: ResourceQuota) -> bool:
         try:
+            if not self.exists(workspace_name):
+                logger.warning(f"[{workspace_name}] Resource quota doesn't exist, cannot update")
+                return False
+                
             logger.info(f"[{workspace_name}] Updating resource quota")
             
             resource_quota = self.v1.read_namespaced_resource_quota(
@@ -465,6 +506,42 @@ class XDEWOperator:
         self.quota_manager = ResourceQuotaManager(self.v1)
         self.rbac_manager = RBACManager(self.rbac_v1)
     
+    def workspace_has_resources(self, workspace_name: str) -> bool:
+        """Check if the workspace has Kubernetes resources created"""
+        return self.namespace_manager.exists(workspace_name)
+    
+    def workspace_should_have_resources(self, phase: str) -> bool:
+        """Determine if a workspace in this phase should have resources"""
+        return phase in [WorkspacePhase.ACTIVE.value]
+    
+    def is_workspace_deletion_due_to_project(self, workspace_body: Dict[str, Any]) -> bool:
+        """Check if workspace deletion is due to parent project deletion"""
+        try:
+            deletion_timestamp = workspace_body.get("metadata", {}).get("deletionTimestamp")
+            if not deletion_timestamp:
+                return False
+            
+            owner_refs = workspace_body.get("metadata", {}).get("ownerReferences", [])
+            for owner_ref in owner_refs:
+                if owner_ref.get("kind") == "Project":
+                    project_name = owner_ref.get("name")
+                    if project_name:
+                        try:
+                            self.custom_api.get_cluster_custom_object(
+                                group="xdew.ch",
+                                version="v1",
+                                plural="projects",
+                                name=project_name
+                            )
+                            return False
+                        except ApiException as e:
+                            if e.status == 404:
+                                return True
+            return False
+        except Exception as e:
+            logger.error(f"Error checking project deletion status: {e}")
+            return False
+    
     def get_project_by_id(self, project_id: str) -> Optional[ProjectInfo]:
         try:
             project = self.custom_api.get_cluster_custom_object(
@@ -522,7 +599,15 @@ class XDEWOperator:
             logger.error(f"[{workspace_name}] Failed to update workspace resources: {e}")
             return False
     
-    def delete_workspace_resources(self, workspace_name: str) -> bool:
+    def delete_workspace_resources(self, workspace_name: str, expected_to_exist: bool = True) -> bool:
+        """
+        Delete workspace resources
+        expected_to_exist: indicates if we expect the resources to exist
+        """
+        if not expected_to_exist and not self.workspace_has_resources(workspace_name):
+            logger.info(f"[{workspace_name}] No resources to delete (as expected)")
+            return True
+        
         return self.namespace_manager.delete(workspace_name)
     
     def add_audit_entry(self, name: str, resource_type: str, user: str, 
@@ -848,7 +933,7 @@ def handle_workspace_phase_change(old, new, spec, name, uid, body, **kwargs):
     elif new == WorkspacePhase.ACTIVE.value:
         _handle_workspace_activation(spec, name, uid)
     elif new == WorkspacePhase.TERMINATED.value:
-        _handle_workspace_termination(name)
+        _handle_workspace_termination(spec, name)
 
 
 @kopf.on.field('xdew.ch', 'v1', 'workspaces', field='status.approvals', retries=1)
@@ -913,6 +998,15 @@ def handle_resource_quota_change(old, new, spec, name, **kwargs):
     if old != new and old is not None:
         logger.info(f"[{name}] Resource quota changed")
         
+        # Check if the workspace has resources before attempting update
+        if not operator.workspace_has_resources(name):
+            logger.info(f"[{name}] No resources exist yet, quota will be applied when workspace becomes active")
+            operator.add_audit_entry(
+                name, "workspaces", "system", "resource-quota-updated", 
+                "pending", "Resource quota updated in spec, will be applied when workspace becomes active"
+            )
+            return
+        
         try:
             quota = ResourceQuota.from_dict(new)
             if operator.update_workspace_resources(name, quota):
@@ -934,21 +1028,38 @@ def handle_resource_quota_change(old, new, spec, name, **kwargs):
 
 
 @kopf.on.delete('xdew.ch', 'v1', 'workspaces')
-def delete_workspace(spec, name, **kwargs):
+def delete_workspace(spec, name, body, **kwargs):
     logger.info(f"[{name}] Deleting workspace")
     
     try:
         project_ref = spec.get('projectRef')
+        current_phase = body.get("status", {}).get("phase", "unknown")
         
-        operator.delete_workspace_resources(name)
+        # Check if deletion is due to parent project deletion
+        is_project_deletion = operator.is_workspace_deletion_due_to_project(body)
         
-        if project_ref:
+        if is_project_deletion:
+            logger.info(f"[{name}] Workspace deletion triggered by project deletion")
+        
+        # Determine if we expect resources to exist
+        expected_resources = operator.workspace_should_have_resources(current_phase)
+        
+        if not expected_resources:
+            logger.info(f"[{name}] Workspace in phase '{current_phase}' should not have resources")
+        
+        # Delete resources if they exist
+        operator.delete_workspace_resources(name, expected_to_exist=expected_resources)
+        
+        # Update project counter only if project still exists
+        if project_ref and not is_project_deletion:
             try:
                 time.sleep(1)
                 operator.update_project_workspace_count(project_ref)
                 logger.info(f"[{name}]   ↳ Updated workspace count for project {project_ref}")
             except Exception as count_error:
                 logger.error(f"[{name}]   ↳ Failed to update project workspace count: {count_error}")
+        elif is_project_deletion:
+            logger.info(f"[{name}]   ↳ Skipping project count update (project deleted)")
         
         logger.info(f"[{name}]   ↳ Workspace deletion completed")
             
@@ -1121,19 +1232,29 @@ def _handle_workspace_activation(spec, name, uid):
         )
 
 
-def _handle_workspace_termination(name):
+def _handle_workspace_termination(spec, name):
     try:
         logger.info(f"[{name}] Processing workspace termination")
         
-        if operator.delete_workspace_resources(name):
+        # Determine if resources should exist
+        has_resources = operator.workspace_has_resources(name)
+        
+        if has_resources:
+            if operator.delete_workspace_resources(name, expected_to_exist=True):
+                operator.add_audit_entry(
+                    name, "workspaces", "system", "workspace-terminated", 
+                    "terminated", "Workspace resources deleted successfully"
+                )
+            else:
+                operator.add_audit_entry(
+                    name, "workspaces", "system", "workspace-termination-failed", 
+                    "error", "Failed to delete workspace resources"
+                )
+        else:
+            logger.info(f"[{name}] No resources found to terminate")
             operator.add_audit_entry(
                 name, "workspaces", "system", "workspace-terminated", 
-                "terminated", "Workspace resources deleted successfully"
-            )
-        else:
-            operator.add_audit_entry(
-                name, "workspaces", "system", "workspace-termination-failed", 
-                "error", "Failed to delete workspace resources"
+                "terminated", "Workspace terminated (no resources were created)"
             )
             
     except Exception as e:
