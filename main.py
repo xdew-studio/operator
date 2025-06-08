@@ -204,10 +204,10 @@ class NamespaceManager(ResourceManager):
                 )
             )
             self.v1.create_namespace(namespace)
-            logger.info(f"[{workspace_name}]   ↳ Namespace created successfully")
+            logger.info(f"[{workspace_name}]  ↳ Namespace created successfully")
             return True
         except ApiException as e:
-            logger.error(f"[{workspace_name}]   ↳ Failed to create namespace: {e}")
+            logger.error(f"[{workspace_name}]  ↳ Failed to create namespace: {e}")
             return False
     
     def delete(self, workspace_name: str) -> bool:
@@ -218,13 +218,13 @@ class NamespaceManager(ResourceManager):
                 
             logger.info(f"[{workspace_name}] Deleting namespace")
             self.v1.delete_namespace(workspace_name)
-            logger.info(f"[{workspace_name}]   ↳ Namespace deleted successfully")
+            logger.info(f"[{workspace_name}]  ↳ Namespace deleted successfully")
             return True
         except ApiException as e:
             if e.status == 404:
-                logger.info(f"[{workspace_name}]   ↳ Namespace already deleted")
+                logger.info(f"[{workspace_name}]  ↳ Namespace already deleted")
                 return True
-            logger.error(f"[{workspace_name}]   ↳ Failed to delete namespace: {e}")
+            logger.error(f"[{workspace_name}]  ↳ Failed to delete namespace: {e}")
             return False
 
 
@@ -272,10 +272,10 @@ class ResourceQuotaManager(ResourceManager):
                 )
             )
             self.v1.create_namespaced_resource_quota(workspace_name, resource_quota)
-            logger.info(f"[{workspace_name}]   ↳ Resource quota created successfully")
+            logger.info(f"[{workspace_name}]  ↳ Resource quota created successfully")
             return True
         except ApiException as e:
-            logger.error(f"[{workspace_name}]   ↳ Failed to create resource quota: {e}")
+            logger.error(f"[{workspace_name}]  ↳ Failed to create resource quota: {e}")
             return False
     
     def update(self, workspace_name: str, quota: ResourceQuota) -> bool:
@@ -303,10 +303,10 @@ class ResourceQuotaManager(ResourceManager):
                 namespace=workspace_name,
                 body=resource_quota
             )
-            logger.info(f"[{workspace_name}]   ↳ Resource quota updated successfully")
+            logger.info(f"[{workspace_name}]  ↳ Resource quota updated successfully")
             return True
         except ApiException as e:
-            logger.error(f"[{workspace_name}]   ↳ Failed to update resource quota: {e}")
+            logger.error(f"[{workspace_name}]  ↳ Failed to update resource quota: {e}")
             return False
     
     def delete(self, workspace_name: str) -> bool:
@@ -324,10 +324,10 @@ class RBACManager(ResourceManager):
             logger.info(f"[{workspace_name}] Creating RBAC resources")
             self._create_workspace_roles(workspace_name, workspace_info, owner_ref)
             self._create_team_bindings(workspace_name, project_info, owner_ref)
-            logger.info(f"[{workspace_name}]   ↳ RBAC resources created successfully")
+            logger.info(f"[{workspace_name}]  ↳ RBAC resources created successfully")
             return True
         except ApiException as e:
-            logger.error(f"[{workspace_name}]   ↳ Failed to create RBAC resources: {e}")
+            logger.error(f"[{workspace_name}]  ↳ Failed to create RBAC resources: {e}")
             return False
     
     def delete(self, workspace_name: str) -> bool:
@@ -690,11 +690,11 @@ class XDEWOperator:
                     body=project
                 )
                 
-                logger.info(f"[{project_id}]   ↳ Workspace count updated to {count}")
+                logger.info(f"[{project_id}]  ↳ Workspace count updated to {count}")
                 
             except ApiException as api_error:
                 if api_error.status == 404:
-                    logger.warning(f"[{project_id}]   ↳ Project not found, skipping count update")
+                    logger.warning(f"[{project_id}]  ↳ Project not found, skipping count update")
                 else:
                     raise api_error
                 
@@ -715,7 +715,7 @@ class XDEWOperator:
             for ws in workspaces.get("items", []):
                 if ws.get("spec", {}).get("projectRef") == project_id:
                     ws_name = ws["metadata"]["name"]
-                    logger.info(f"[{project_id}]   ↳ Deleting workspace: {ws_name}")
+                    logger.info(f"[{project_id}]  ↳ Deleting workspace: {ws_name}")
                     
                     try:
                         self.custom_api.delete_cluster_custom_object(
@@ -726,9 +726,9 @@ class XDEWOperator:
                         )
                         count += 1
                     except Exception as e:
-                        logger.error(f"[{project_id}]   ↳ Failed to delete workspace {ws_name}: {e}")
+                        logger.error(f"[{project_id}]  ↳ Failed to delete workspace {ws_name}: {e}")
             
-            logger.info(f"[{project_id}]   ↳ Cleaned up {count} workspaces")
+            logger.info(f"[{project_id}]  ↳ Cleaned up {count} workspaces")
                         
         except Exception as e:
             logger.error(f"[{project_id}] Failed to cleanup workspaces: {e}")
@@ -749,7 +749,7 @@ def create_project(spec, name, patch, **kwargs):
         
         if not all([project_name, description, owner, team]):
             message = "Missing required fields: name, description, owner, or team"
-            logger.error(f"[{name}]   ↳ {message}")
+            logger.error(f"[{name}]  ↳ {message}")
             patch.status['phase'] = ProjectPhase.SUSPENDED.value
             patch.status['workspaceCount'] = 0
             patch.status['createdAt'] = datetime.now(timezone.utc).isoformat()
@@ -780,10 +780,10 @@ def create_project(spec, name, patch, **kwargs):
             }
         ]
         
-        logger.info(f"[{name}]   ↳ Project created successfully")
+        logger.info(f"[{name}]  ↳ Project created successfully")
         
     except Exception as e:
-        logger.error(f"[{name}]   ↳ Failed to create project: {e}")
+        logger.error(f"[{name}]  ↳ Failed to create project: {e}")
         timestamp = datetime.now(timezone.utc).isoformat()
         patch.status['phase'] = ProjectPhase.SUSPENDED.value
         patch.status['workspaceCount'] = 0
@@ -828,7 +828,7 @@ def create_workspace(spec, name, patch, uid, **kwargs):
                 }
             ]
             patch.status['createdAt'] = timestamp
-            logger.warning(f"[{name}]   ↳ {message}")
+            logger.warning(f"[{name}]  ↳ {message}")
             return
         
         project_info = operator.get_project_by_id(project_ref)
@@ -847,7 +847,7 @@ def create_workspace(spec, name, patch, uid, **kwargs):
                 }
             ]
             patch.status['createdAt'] = timestamp
-            logger.warning(f"[{name}]   ↳ {message}")
+            logger.warning(f"[{name}]  ↳ {message}")
             return
         
         project_ref_obj = {
@@ -865,7 +865,7 @@ def create_workspace(spec, name, patch, uid, **kwargs):
         if not resources_spec:
             resources_spec = ResourceQuota().to_dict()
             patch.spec['resources'] = resources_spec
-            logger.info(f"[{name}]   ↳ Applied default resource quota")
+            logger.info(f"[{name}]  ↳ Applied default resource quota")
         
         timestamp = datetime.now(timezone.utc).isoformat()
         patch.status['phase'] = WorkspacePhase.PENDING.value
@@ -886,7 +886,7 @@ def create_workspace(spec, name, patch, uid, **kwargs):
         logger.info(f"[{name}] Workspace created in pending state")
         
     except Exception as e:
-        logger.error(f"[{name}]   ↳ Failed to create workspace: {e}")
+        logger.error(f"[{name}]  ↳ Failed to create workspace: {e}")
         timestamp = datetime.now(timezone.utc).isoformat()
         patch.status['phase'] = WorkspacePhase.REJECTED.value
         patch.status['approvals'] = []
@@ -1055,16 +1055,16 @@ def delete_workspace(spec, name, body, **kwargs):
             try:
                 time.sleep(1)
                 operator.update_project_workspace_count(project_ref)
-                logger.info(f"[{name}]   ↳ Updated workspace count for project {project_ref}")
+                logger.info(f"[{name}]  ↳ Updated workspace count for project {project_ref}")
             except Exception as count_error:
-                logger.error(f"[{name}]   ↳ Failed to update project workspace count: {count_error}")
+                logger.error(f"[{name}]  ↳ Failed to update project workspace count: {count_error}")
         elif is_project_deletion:
-            logger.info(f"[{name}]   ↳ Skipping project count update (project deleted)")
+            logger.info(f"[{name}]  ↳ Skipping project count update (project deleted)")
         
-        logger.info(f"[{name}]   ↳ Workspace deletion completed")
+        logger.info(f"[{name}]  ↳ Workspace deletion completed")
             
     except Exception as e:
-        logger.error(f"[{name}]   ↳ Failed to handle workspace deletion: {e}")
+        logger.error(f"[{name}]  ↳ Failed to handle workspace deletion: {e}")
 
 
 @kopf.on.delete('xdew.ch', 'v1', 'projects')
@@ -1085,7 +1085,7 @@ def delete_project(name, **kwargs):
         )
         
     except Exception as e:
-        logger.error(f"[{name}]   ↳ Failed to handle project deletion: {e}")
+        logger.error(f"[{name}]  ↳ Failed to handle project deletion: {e}")
 
 @kopf.on.startup()
 def configure(settings: kopf.OperatorSettings, **_):
@@ -1147,7 +1147,7 @@ def _handle_workspace_approval(spec, name, uid, body):
         )
         
     except Exception as e:
-        logger.error(f"[{name}]   ↳ Failed to handle workspace approval: {e}")
+        logger.error(f"[{name}]  ↳ Failed to handle workspace approval: {e}")
         operator.add_audit_entry(
             name, "workspaces", "system", "workspace-approval-failed", 
             "error", f"Failed to process approval: {str(e)}"
@@ -1225,7 +1225,7 @@ def _handle_workspace_activation(spec, name, uid):
             )
         
     except Exception as e:
-        logger.error(f"[{name}]   ↳ Failed to handle workspace activation: {e}")
+        logger.error(f"[{name}]  ↳ Failed to handle workspace activation: {e}")
         operator.add_audit_entry(
             name, "workspaces", "system", "workspace-activation-failed", 
             "error", f"Failed to activate workspace: {str(e)}"
@@ -1258,7 +1258,7 @@ def _handle_workspace_termination(spec, name):
             )
             
     except Exception as e:
-        logger.error(f"[{name}]   ↳ Failed to terminate workspace: {e}")
+        logger.error(f"[{name}]  ↳ Failed to terminate workspace: {e}")
         operator.add_audit_entry(
             name, "workspaces", "system", "workspace-termination-failed", 
             "error", f"Failed to terminate workspace: {str(e)}"
