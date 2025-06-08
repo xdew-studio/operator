@@ -1,10 +1,4 @@
 #!/usr/bin/env python3
-"""
-XDEW Kubernetes Operator v2
-
-A Kubernetes operator for managing XDEW projects and workspaces with
-approval workflow, RBAC, and lifecycle management.
-"""
 
 import logging
 from abc import ABC, abstractmethod
@@ -12,13 +6,13 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Dict, Any, Optional, List
+import time
 
 import kopf
 import kubernetes
 from kubernetes.client.exceptions import ApiException
 
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -27,14 +21,12 @@ logger = logging.getLogger(__name__)
 
 
 class ProjectPhase(Enum):
-    """Enumeration of possible project phases."""
     ACTIVE = "active"
     SUSPENDED = "suspended"
     TERMINATED = "terminated"
 
 
 class WorkspacePhase(Enum):
-    """Enumeration of possible workspace phases."""
     PENDING = "pending"
     APPROVED = "approved"
     REJECTED = "rejected"
@@ -44,7 +36,6 @@ class WorkspacePhase(Enum):
 
 
 class Environment(Enum):
-    """Enumeration of environment types."""
     DEVELOPMENT = "development"
     STAGING = "staging"
     PRODUCTION = "production"
@@ -52,14 +43,12 @@ class Environment(Enum):
 
 
 class Decision(Enum):
-    """Enumeration of approval decisions."""
     APPROVED = "approved"
     REJECTED = "rejected"
 
 
 @dataclass
 class AuditEntry:
-    """Audit log entry."""
     timestamp: str
     user: str
     action: str
@@ -88,7 +77,6 @@ class AuditEntry:
 
 @dataclass
 class ApprovalEntry:
-    """Approval entry."""
     user: str
     decision: str
     timestamp: str
@@ -114,7 +102,6 @@ class ApprovalEntry:
 
 @dataclass
 class ResourceQuota:
-    """Resource quota configuration."""
     cpu: str = "1000m"
     memory: str = "2Gi"
     storage: str = "10Gi"
@@ -137,7 +124,6 @@ class ResourceQuota:
 
 @dataclass
 class ProjectInfo:
-    """Project information container."""
     name: str
     description: str
     owner: str
@@ -149,7 +135,6 @@ class ProjectInfo:
 
 @dataclass
 class WorkspaceInfo:
-    """Workspace information container."""
     workspace_id: str
     project_ref: str
     name: str
@@ -162,33 +147,27 @@ class WorkspaceInfo:
 
 
 class KubernetesClientError(Exception):
-    """Custom exception for Kubernetes client errors."""
     pass
 
 
 class ResourceManager(ABC):
-    """Abstract base class for resource managers."""
     
     @abstractmethod
     def create(self, *args, **kwargs) -> bool:
-        """Create the resource."""
         pass
     
     @abstractmethod
     def delete(self, *args, **kwargs) -> bool:
-        """Delete the resource."""
         pass
 
 
 class NamespaceManager(ResourceManager):
-    """Manages Kubernetes namespace operations."""
     
     def __init__(self, v1_client: kubernetes.client.CoreV1Api):
         self.v1 = v1_client
     
     def create(self, workspace_name: str, workspace_info: WorkspaceInfo, 
                owner_ref: Dict[str, Any]) -> bool:
-        """Create a Kubernetes namespace."""
         try:
             logger.info(f"[{workspace_name}] Creating namespace")
             
@@ -217,7 +196,6 @@ class NamespaceManager(ResourceManager):
             return False
     
     def delete(self, workspace_name: str) -> bool:
-        """Delete a Kubernetes namespace."""
         try:
             logger.info(f"[{workspace_name}] Deleting namespace")
             self.v1.delete_namespace(workspace_name)
@@ -232,14 +210,12 @@ class NamespaceManager(ResourceManager):
 
 
 class ResourceQuotaManager(ResourceManager):
-    """Manages Kubernetes resource quota operations."""
     
     def __init__(self, v1_client: kubernetes.client.CoreV1Api):
         self.v1 = v1_client
     
     def create(self, workspace_name: str, quota: ResourceQuota,
                owner_ref: Dict[str, Any]) -> bool:
-        """Create a resource quota in the namespace."""
         try:
             logger.info(f"[{workspace_name}] Creating resource quota")
             
@@ -254,7 +230,7 @@ class ResourceQuotaManager(ResourceManager):
                         "requests.cpu": quota.cpu,
                         "requests.memory": quota.memory,
                         "requests.storage": quota.storage,
-                        "pods": "20"  # Default pod limit
+                        "pods": "20"
                     }
                 )
             )
@@ -266,7 +242,6 @@ class ResourceQuotaManager(ResourceManager):
             return False
     
     def update(self, workspace_name: str, quota: ResourceQuota) -> bool:
-        """Update a resource quota in the namespace."""
         try:
             logger.info(f"[{workspace_name}] Updating resource quota")
             
@@ -294,19 +269,16 @@ class ResourceQuotaManager(ResourceManager):
             return False
     
     def delete(self, workspace_name: str) -> bool:
-        """Delete resource quota (handled by namespace deletion)."""
         return True
 
 
 class RBACManager(ResourceManager):
-    """Manages RBAC resources (roles and role bindings)."""
     
     def __init__(self, rbac_client: kubernetes.client.RbacAuthorizationV1Api):
         self.rbac_v1 = rbac_client
     
     def create(self, workspace_name: str, workspace_info: WorkspaceInfo,
                project_info: ProjectInfo, owner_ref: Dict[str, Any]) -> bool:
-        """Create RBAC resources for the namespace."""
         try:
             logger.info(f"[{workspace_name}] Creating RBAC resources")
             self._create_workspace_roles(workspace_name, workspace_info, owner_ref)
@@ -318,13 +290,10 @@ class RBACManager(ResourceManager):
             return False
     
     def delete(self, workspace_name: str) -> bool:
-        """Delete RBAC resources (handled by namespace deletion)."""
         return True
     
     def _create_workspace_roles(self, workspace_name: str, workspace_info: WorkspaceInfo,
                                owner_ref: Dict[str, Any]) -> None:
-        """Create workspace-specific roles."""
-        # Admin role (for workspace requester and approvers)
         admin_role = kubernetes.client.V1Role(
             metadata=kubernetes.client.V1ObjectMeta(
                 name=f"{workspace_name}-admin",
@@ -335,7 +304,6 @@ class RBACManager(ResourceManager):
         )
         self.rbac_v1.create_namespaced_role(workspace_name, admin_role)
         
-        # Developer role
         dev_role = kubernetes.client.V1Role(
             metadata=kubernetes.client.V1ObjectMeta(
                 name=f"{workspace_name}-developer",
@@ -346,7 +314,6 @@ class RBACManager(ResourceManager):
         )
         self.rbac_v1.create_namespaced_role(workspace_name, dev_role)
         
-        # Readonly role
         readonly_role = kubernetes.client.V1Role(
             metadata=kubernetes.client.V1ObjectMeta(
                 name=f"{workspace_name}-readonly",
@@ -357,7 +324,6 @@ class RBACManager(ResourceManager):
         )
         self.rbac_v1.create_namespaced_role(workspace_name, readonly_role)
         
-        # Bind requester to admin role
         requester_binding = kubernetes.client.V1RoleBinding(
             metadata=kubernetes.client.V1ObjectMeta(
                 name=f"{workspace_name}-requester-admin",
@@ -377,7 +343,6 @@ class RBACManager(ResourceManager):
         )
         self.rbac_v1.create_namespaced_role_binding(workspace_name, requester_binding)
         
-        # Bind approvers to admin role
         for approver_group in workspace_info.approvers:
             approver_binding = kubernetes.client.V1RoleBinding(
                 metadata=kubernetes.client.V1ObjectMeta(
@@ -400,9 +365,7 @@ class RBACManager(ResourceManager):
     
     def _create_team_bindings(self, workspace_name: str, project_info: ProjectInfo,
                              owner_ref: Dict[str, Any]) -> None:
-        """Create team-based role bindings."""
         for team in project_info.team:
-            # Determine role based on team name
             if "admin" in team.lower():
                 role_name = f"{workspace_name}-admin"
             elif "readonly" in team.lower() or "read" in team.lower():
@@ -431,7 +394,6 @@ class RBACManager(ResourceManager):
     
     @staticmethod
     def _get_admin_policy_rules() -> List[kubernetes.client.V1PolicyRule]:
-        """Get policy rules for admin role."""
         return [
             kubernetes.client.V1PolicyRule(
                 api_groups=["*"],
@@ -442,7 +404,6 @@ class RBACManager(ResourceManager):
     
     @staticmethod
     def _get_developer_policy_rules() -> List[kubernetes.client.V1PolicyRule]:
-        """Get policy rules for developer role."""
         return [
             kubernetes.client.V1PolicyRule(
                 api_groups=[""],
@@ -468,7 +429,6 @@ class RBACManager(ResourceManager):
     
     @staticmethod
     def _get_readonly_policy_rules() -> List[kubernetes.client.V1PolicyRule]:
-        """Get policy rules for readonly role."""
         return [
             kubernetes.client.V1PolicyRule(
                 api_groups=["", "apps", "extensions", "networking.k8s.io"],
@@ -479,15 +439,12 @@ class RBACManager(ResourceManager):
 
 
 class XDEWOperator:
-    """Main operator class for managing XDEW projects and workspaces."""
     
     def __init__(self):
-        """Initialize the operator with Kubernetes clients."""
         self._initialize_kubernetes_clients()
         self._initialize_managers()
     
     def _initialize_kubernetes_clients(self) -> None:
-        """Initialize Kubernetes API clients."""
         try:
             kubernetes.config.load_incluster_config()
             logger.info("Using in-cluster configuration")
@@ -504,13 +461,11 @@ class XDEWOperator:
         self.custom_api = kubernetes.client.CustomObjectsApi()
     
     def _initialize_managers(self) -> None:
-        """Initialize resource managers."""
         self.namespace_manager = NamespaceManager(self.v1)
         self.quota_manager = ResourceQuotaManager(self.v1)
         self.rbac_manager = RBACManager(self.rbac_v1)
     
     def get_project_by_id(self, project_id: str) -> Optional[ProjectInfo]:
-        """Retrieve project information by ID."""
         try:
             project = self.custom_api.get_cluster_custom_object(
                 group="xdew.ch",
@@ -541,19 +496,15 @@ class XDEWOperator:
     
     def create_workspace_resources(self, workspace_info: WorkspaceInfo,
                                   project_info: ProjectInfo, owner_ref: Dict[str, Any]) -> bool:
-        """Create all resources for a workspace."""
         workspace_name = workspace_info.name
         
         try:
-            # Create namespace
             if not self.namespace_manager.create(workspace_name, workspace_info, owner_ref):
                 return False
             
-            # Create resource quota
             if not self.quota_manager.create(workspace_name, workspace_info.resources, owner_ref):
                 return False
             
-            # Create RBAC resources
             if not self.rbac_manager.create(workspace_name, workspace_info, project_info, owner_ref):
                 return False
             
@@ -564,7 +515,6 @@ class XDEWOperator:
             return False
     
     def update_workspace_resources(self, workspace_name: str, quota: ResourceQuota) -> bool:
-        """Update workspace resources."""
         try:
             logger.info(f"[{workspace_name}] Updating workspace resources")
             return self.quota_manager.update(workspace_name, quota)
@@ -573,12 +523,10 @@ class XDEWOperator:
             return False
     
     def delete_workspace_resources(self, workspace_name: str) -> bool:
-        """Delete all resources for a workspace."""
         return self.namespace_manager.delete(workspace_name)
     
     def add_audit_entry(self, name: str, resource_type: str, user: str, 
                        action: str, status: str, comment: str) -> None:
-        """Add an audit entry to the resource."""
         try:
             resource = self.custom_api.get_cluster_custom_object(
                 group="xdew.ch",
@@ -593,7 +541,6 @@ class XDEWOperator:
             if "auditLog" not in resource["status"]:
                 resource["status"]["auditLog"] = []
             
-            # Create new audit entry
             entry = AuditEntry(
                 timestamp=datetime.now(timezone.utc).isoformat(),
                 user=user,
@@ -602,13 +549,9 @@ class XDEWOperator:
                 comment=comment
             )
             
-            # Add to audit log
             resource["status"]["auditLog"].append(entry.to_dict())
-            
-            # Update last updated timestamp
             resource["status"]["lastUpdated"] = entry.timestamp
             
-            # Keep only last 100 entries
             if len(resource["status"]["auditLog"]) > 100:
                 resource["status"]["auditLog"] = resource["status"]["auditLog"][-100:]
             
@@ -624,27 +567,22 @@ class XDEWOperator:
             logger.error(f"[{name}] Failed to add audit entry: {e}")
     
     def update_project_workspace_count(self, project_id: str) -> None:
-        """Update the workspace count for a project."""
         try:
             logger.info(f"[{project_id}] Updating workspace count")
             
-            # Get all workspaces
             workspaces = self.custom_api.list_cluster_custom_object(
                 group="xdew.ch",
                 version="v1",
                 plural="workspaces"
             )
             
-            # Count workspaces for this project (excluding those being deleted)
             count = 0
             for ws in workspaces.get("items", []):
-                # Skip workspaces that are being deleted (have deletionTimestamp)
                 if ws.get("metadata", {}).get("deletionTimestamp"):
                     continue
                 if ws.get("spec", {}).get("projectRef") == project_id:
                     count += 1
             
-            # Update project status
             try:
                 project = self.custom_api.get_cluster_custom_object(
                     group="xdew.ch",
@@ -679,7 +617,6 @@ class XDEWOperator:
             logger.error(f"[{project_id}] Failed to update workspace count: {e}")
     
     def cleanup_project_workspaces(self, project_id: str) -> None:
-        """Clean up all workspaces associated with a project."""
         try:
             logger.info(f"[{project_id}] Cleaning up associated workspaces")
             
@@ -707,91 +644,19 @@ class XDEWOperator:
                         logger.error(f"[{project_id}]   ↳ Failed to delete workspace {ws_name}: {e}")
             
             logger.info(f"[{project_id}]   ↳ Cleaned up {count} workspaces")
-        except Exception as e:
-            logger.error(f"[{project_id}] Failed to clean up workspaces: {e}")
-                        
-    def force_cleanup_stuck_workspaces(self) -> None:
-        """Force cleanup of workspaces stuck in deletion."""
-        try:
-            logger.info("Checking for stuck workspaces in deletion")
-            
-            workspaces = self.custom_api.list_cluster_custom_object(
-                group="xdew.ch",
-                version="v1",
-                plural="workspaces"
-            )
-            
-            finalizer_name = 'xdew.ch/workspace-cleanup'
-            
-            for ws in workspaces.get("items", []):
-                metadata = ws.get("metadata", {})
-                deletion_timestamp = metadata.get("deletionTimestamp")
-                finalizers = metadata.get("finalizers", [])
-                name = metadata.get("name", "unknown")
-                
-                # Check if workspace is stuck in deletion with our finalizer
-                if deletion_timestamp and finalizer_name in finalizers:
-                    logger.info(f"[{name}] Found stuck workspace, forcing cleanup")
-                    
-                    try:
-                        # Remove namespace directly
-                        try:
-                            self.v1.delete_namespace(name)
-                            logger.info(f"[{name}]   ↳ Namespace deletion initiated")
-                        except ApiException as e:
-                            if e.status == 404:
-                                logger.info(f"[{name}]   ↳ Namespace already deleted")
-                            else:
-                                logger.warning(f"[{name}]   ↳ Failed to delete namespace: {e}")
-                        
-                        # Update project count
-                        project_ref = ws.get("spec", {}).get("projectRef")
-                        if project_ref:
-                            self.update_project_workspace_count(project_ref)
-                        
-                        # Remove finalizer to unblock deletion
-                        new_finalizers = [f for f in finalizers if f != finalizer_name]
-                        patch_body = {
-                            "metadata": {
-                                "finalizers": new_finalizers
-                            }
-                        }
-                        
-                        self.custom_api.patch_cluster_custom_object(
-                            group="xdew.ch",
-                            version="v1",
-                            plural="workspaces",
-                            name=name,
-                            body=patch_body
-                        )
-                        
-                        logger.info(f"[{name}]   ↳ Forced cleanup completed")
-                        
-                    except Exception as cleanup_error:
-                        logger.error(f"[{name}]   ↳ Failed to force cleanup: {cleanup_error}")
                         
         except Exception as e:
-            logger.error(f"Failed to check for stuck workspaces: {e}")
+            logger.error(f"[{project_id}] Failed to cleanup workspaces: {e}")
 
 
-# Add a timer to periodically check for stuck workspaces
-@kopf.timer('xdew.ch', 'v1', 'workspaces', interval=300)  # Every 5 minutes
-def cleanup_stuck_workspaces_timer(**kwargs):
-    """Timer to periodically clean up stuck workspaces."""
-    try:
-        operator.force_cleanup_stuck_workspaces()
-    except Exception as e:
-        logger.error(f"Failed to run stuck workspace cleanup timer: {e}")
 operator = XDEWOperator()
 
 
 @kopf.on.create('xdew.ch', 'v1', 'projects')
 def create_project(spec, name, patch, **kwargs):
-    """Handle project creation events."""
     logger.info(f"[{name}] Creating project")
     
     try:
-        # Validate required fields
         project_name = spec.get('name')
         description = spec.get('description')
         owner = spec.get('owner')
@@ -815,7 +680,6 @@ def create_project(spec, name, patch, **kwargs):
             ]
             return
         
-        # Initialize status
         timestamp = datetime.now(timezone.utc).isoformat()
         patch.status['phase'] = ProjectPhase.ACTIVE.value
         patch.status['workspaceCount'] = 0
@@ -853,11 +717,9 @@ def create_project(spec, name, patch, **kwargs):
 
 @kopf.on.create('xdew.ch', 'v1', 'workspaces')
 def create_workspace(spec, name, patch, uid, **kwargs):
-    """Handle workspace creation events."""
     logger.info(f"[{name}] Creating workspace")
     
     try:
-        # Extract workspace information
         project_ref = spec.get('projectRef')
         workspace_name = spec.get('name')
         description = spec.get('description')
@@ -866,7 +728,6 @@ def create_workspace(spec, name, patch, uid, **kwargs):
         resources_spec = spec.get('resources', {})
         approvers = spec.get('approvers', [])
         
-        # Validate required fields
         if not all([project_ref, workspace_name, description, requester, environment, approvers]):
             message = "Missing required fields"
             timestamp = datetime.now(timezone.utc).isoformat()
@@ -885,7 +746,6 @@ def create_workspace(spec, name, patch, uid, **kwargs):
             logger.warning(f"[{name}]   ↳ {message}")
             return
         
-        # Validate project exists
         project_info = operator.get_project_by_id(project_ref)
         if not project_info:
             message = f"Project {project_ref} not found"
@@ -905,13 +765,6 @@ def create_workspace(spec, name, patch, uid, **kwargs):
             logger.warning(f"[{name}]   ↳ {message}")
             return
         
-        # Add finalizer to ensure proper cleanup
-        if not hasattr(patch, 'metadata') or patch.metadata is None:
-            patch.metadata = {}
-        
-        patch.metadata['finalizers'] = ['xdew.ch/workspace-cleanup']
-        
-        # Set owner reference to project
         project_ref_obj = {
             "apiVersion": "xdew.ch/v1",
             "kind": "Project",
@@ -920,15 +773,15 @@ def create_workspace(spec, name, patch, uid, **kwargs):
         }
         
         if project_ref_obj["uid"]:
+            if not hasattr(patch, 'metadata') or patch.metadata is None:
+                patch.metadata = {}
             patch.metadata['ownerReferences'] = [project_ref_obj]
         
-        # Set default resource quota if not provided
         if not resources_spec:
             resources_spec = ResourceQuota().to_dict()
             patch.spec['resources'] = resources_spec
             logger.info(f"[{name}]   ↳ Applied default resource quota")
         
-        # Initialize status
         timestamp = datetime.now(timezone.utc).isoformat()
         patch.status['phase'] = WorkspacePhase.PENDING.value
         patch.status['approvals'] = []
@@ -943,7 +796,6 @@ def create_workspace(spec, name, patch, uid, **kwargs):
         ]
         patch.status['createdAt'] = timestamp
         
-        # Update project workspace count
         operator.update_project_workspace_count(project_ref)
         
         logger.info(f"[{name}] Workspace created in pending state")
@@ -967,14 +819,11 @@ def create_workspace(spec, name, patch, uid, **kwargs):
 
 @kopf.on.field('xdew.ch', 'v1', 'workspaces', field='status.phase')
 def handle_workspace_phase_change(old, new, spec, name, uid, body, **kwargs):
-    """Handle workspace phase changes."""
     logger.info(f"[{name}] Phase changed from {old} to {new}")
     
-    # Check if this phase change was done manually (without audit entry)
     current_status = body.get("status", {})
     audit_log = current_status.get("auditLog", [])
     
-    # If there's no recent audit entry for this phase, add one
     should_add_audit = True
     if audit_log:
         last_entry = audit_log[-1]
@@ -984,7 +833,6 @@ def handle_workspace_phase_change(old, new, spec, name, uid, body, **kwargs):
             should_add_audit = False
     
     if should_add_audit:
-        # Extract user from annotation or patch metadata if available
         user = _extract_user_from_patch(body)
         if not user:
             user = "system"
@@ -995,7 +843,6 @@ def handle_workspace_phase_change(old, new, spec, name, uid, body, **kwargs):
         
         operator.add_audit_entry(name, "workspaces", user, "phase-changed", new, message)
     
-    # Handle phase-specific logic
     if new == WorkspacePhase.APPROVED.value:
         _handle_workspace_approval(spec, name, uid, body)
     elif new == WorkspacePhase.ACTIVE.value:
@@ -1006,22 +853,18 @@ def handle_workspace_phase_change(old, new, spec, name, uid, body, **kwargs):
 
 @kopf.on.field('xdew.ch', 'v1', 'workspaces', field='status.approvals')
 def handle_workspace_approvals_change(old, new, spec, name, body, **kwargs):
-    """Handle workspace approvals changes."""
     if old != new and new:
         logger.info(f"[{name}] Approvals updated")
         
-        # Check if we have enough approvals to move to approved state
         approvals = new or []
         approved_count = sum(1 for approval in approvals if approval.get("decision") == "approved")
         rejected_count = sum(1 for approval in approvals if approval.get("decision") == "rejected")
         
         current_phase = body.get("status", {}).get("phase")
         
-        # Auto-approve if at least one approval and no rejections
         if approved_count > 0 and rejected_count == 0 and current_phase == WorkspacePhase.PENDING.value:
             logger.info(f"[{name}] Auto-approving workspace based on approvals")
             try:
-                # Update phase to approved
                 workspace = operator.custom_api.get_cluster_custom_object(
                     group="xdew.ch",
                     version="v1",
@@ -1042,7 +885,6 @@ def handle_workspace_approvals_change(old, new, spec, name, body, **kwargs):
             except Exception as e:
                 logger.error(f"[{name}] Failed to auto-approve workspace: {e}")
         
-        # Auto-reject if any rejection
         elif rejected_count > 0 and current_phase == WorkspacePhase.PENDING.value:
             logger.info(f"[{name}] Auto-rejecting workspace based on rejections")
             try:
@@ -1068,8 +910,7 @@ def handle_workspace_approvals_change(old, new, spec, name, body, **kwargs):
 
 @kopf.on.field('xdew.ch', 'v1', 'workspaces', field='spec.resources')
 def handle_resource_quota_change(old, new, spec, name, **kwargs):
-    """Handle resource quota changes."""
-    if old != new and old is not None:  # Skip initial creation
+    if old != new and old is not None:
         logger.info(f"[{name}] Resource quota changed")
         
         try:
@@ -1092,8 +933,51 @@ def handle_resource_quota_change(old, new, spec, name, **kwargs):
             )
 
 
+@kopf.on.delete('xdew.ch', 'v1', 'workspaces')
+def delete_workspace(spec, name, **kwargs):
+    logger.info(f"[{name}] Deleting workspace")
+    
+    try:
+        project_ref = spec.get('projectRef')
+        
+        operator.delete_workspace_resources(name)
+        
+        if project_ref:
+            try:
+                time.sleep(1)
+                operator.update_project_workspace_count(project_ref)
+                logger.info(f"[{name}]   ↳ Updated workspace count for project {project_ref}")
+            except Exception as count_error:
+                logger.error(f"[{name}]   ↳ Failed to update project workspace count: {count_error}")
+        
+        logger.info(f"[{name}]   ↳ Workspace deletion completed")
+            
+    except Exception as e:
+        logger.error(f"[{name}]   ↳ Failed to handle workspace deletion: {e}")
+
+
+@kopf.on.delete('xdew.ch', 'v1', 'projects')
+def delete_project(name, **kwargs):
+    logger.info(f"[{name}] Deleting project")
+    
+    try:
+        operator.add_audit_entry(
+            name, "projects", "system", "project-deleted", 
+            "deleted", "Project deletion initiated"
+        )
+        
+        operator.cleanup_project_workspaces(name)
+        
+        operator.add_audit_entry(
+            name, "projects", "system", "project-cleanup-completed", 
+            "deleted", "Project and associated workspaces deleted successfully"
+        )
+        
+    except Exception as e:
+        logger.error(f"[{name}]   ↳ Failed to handle project deletion: {e}")
+
+
 def _is_recent_timestamp(timestamp_str: str) -> bool:
-    """Check if timestamp is within the last 10 seconds."""
     try:
         timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
         now = datetime.now(timezone.utc)
@@ -1103,21 +987,18 @@ def _is_recent_timestamp(timestamp_str: str) -> bool:
 
 
 def _extract_user_from_patch(body: Dict[str, Any]) -> Optional[str]:
-    """Extract user information from resource annotations or managed fields."""
     try:
-        # Check for user annotation
         annotations = body.get("metadata", {}).get("annotations", {})
         user = annotations.get("xdew.ch/last-modified-by")
         if user:
             return user
         
-        # Try to extract from managed fields (last kubectl user)
         managed_fields = body.get("metadata", {}).get("managedFields", [])
-        for field in reversed(managed_fields):  # Most recent first
+        for field in reversed(managed_fields):
             if field.get("operation") == "Update" and field.get("manager"):
                 manager = field.get("manager", "")
                 if "kubectl" in manager:
-                    return "kubectl-user"  # Default for kubectl operations
+                    return "kubectl-user"
         
         return None
     except:
@@ -1125,17 +1006,14 @@ def _extract_user_from_patch(body: Dict[str, Any]) -> Optional[str]:
 
 
 def _handle_workspace_approval(spec, name, uid, body):
-    """Handle workspace approval logic."""
     try:
         logger.info(f"[{name}] Processing workspace approval")
         
-        # Add audit entry for approval
         operator.add_audit_entry(
             name, "workspaces", "system", "workspace-approved", 
             "approved", "Workspace approved for resource creation"
         )
         
-        # Automatically transition to active state
         logger.info(f"[{name}] Auto-activating approved workspace")
         workspace = operator.custom_api.get_cluster_custom_object(
             group="xdew.ch",
@@ -1163,11 +1041,9 @@ def _handle_workspace_approval(spec, name, uid, body):
 
 
 def _handle_workspace_activation(spec, name, uid):
-    """Handle workspace activation logic."""
     try:
         logger.info(f"[{name}] Processing workspace activation")
         
-        # Extract workspace information
         project_ref = spec.get('projectRef')
         workspace_name = spec.get('name')
         description = spec.get('description')
@@ -1176,7 +1052,6 @@ def _handle_workspace_activation(spec, name, uid):
         resources_spec = spec.get('resources', {})
         approvers = spec.get('approvers', [])
         
-        # Get project information
         project_info = operator.get_project_by_id(project_ref)
         if not project_info:
             operator.add_audit_entry(
@@ -1185,7 +1060,6 @@ def _handle_workspace_activation(spec, name, uid):
             )
             return
         
-        # Create workspace info
         workspace_info = WorkspaceInfo(
             workspace_id=name,
             project_ref=project_ref,
@@ -1198,7 +1072,6 @@ def _handle_workspace_activation(spec, name, uid):
             phase=WorkspacePhase.ACTIVE
         )
         
-        # Create owner reference
         owner_ref = {
             "api_version": "xdew.ch/v1",
             "kind": "Workspace",
@@ -1206,9 +1079,7 @@ def _handle_workspace_activation(spec, name, uid):
             "uid": uid
         }
         
-        # Create workspace resources
         if operator.create_workspace_resources(workspace_info, project_info, owner_ref):
-            # Update namespace reference
             try:
                 workspace = operator.custom_api.get_cluster_custom_object(
                     group="xdew.ch",
@@ -1248,11 +1119,9 @@ def _handle_workspace_activation(spec, name, uid):
 
 
 def _handle_workspace_termination(name):
-    """Handle workspace termination logic."""
     try:
         logger.info(f"[{name}] Processing workspace termination")
         
-        # Delete workspace resources
         if operator.delete_workspace_resources(name):
             operator.add_audit_entry(
                 name, "workspaces", "system", "workspace-terminated", 
@@ -1272,106 +1141,7 @@ def _handle_workspace_termination(name):
         )
 
 
-@kopf.on.delete('xdew.ch', 'v1', 'workspaces')
-def delete_workspace(spec, name, body, **kwargs):
-    """Handle workspace deletion events."""
-    logger.info(f"[{name}] Deleting workspace")
-    
-    try:
-        project_ref = spec.get('projectRef')
-        
-        # Delete workspace resources first
-        operator.delete_workspace_resources(name)
-        
-        # Update project workspace count AFTER deletion
-        if project_ref:
-            try:
-                # Update count in a separate try block to ensure it happens
-                operator.update_project_workspace_count(project_ref)
-                logger.info(f"[{name}]   ↳ Updated workspace count for project {project_ref}")
-            except Exception as count_error:
-                logger.error(f"[{name}]   ↳ Failed to update project workspace count: {count_error}")
-        
-        logger.info(f"[{name}]   ↳ Workspace deletion completed")
-            
-    except Exception as e:
-        logger.error(f"[{name}]   ↳ Failed to handle workspace deletion: {e}")
-
-
-# Alternative approach using finalizer handler
-@kopf.on.delete('xdew.ch', 'v1', 'workspaces', optional=True)
-def cleanup_workspace_finalizer(spec, name, body, patch, **kwargs):
-    """Handle workspace cleanup with finalizer - alternative approach."""
-    finalizer_name = 'xdew.ch/workspace-cleanup'
-    current_finalizers = body.get("metadata", {}).get("finalizers", [])
-    
-    # Only process if our finalizer is present
-    if finalizer_name not in current_finalizers:
-        return
-    
-    logger.info(f"[{name}] Processing workspace cleanup with finalizer")
-    
-    try:
-        project_ref = spec.get('projectRef')
-        
-        # Delete workspace resources
-        operator.delete_workspace_resources(name)
-        
-        # Update project workspace count
-        if project_ref:
-            operator.update_project_workspace_count(project_ref)
-            logger.info(f"[{name}]   ↳ Updated workspace count for project {project_ref}")
-        
-        # Remove our finalizer to allow deletion
-        new_finalizers = [f for f in current_finalizers if f != finalizer_name]
-        
-        # Use kopf patch mechanism to remove finalizer
-        patch.metadata = patch.metadata or {}
-        patch.metadata['finalizers'] = new_finalizers
-        
-        logger.info(f"[{name}]   ↳ Workspace cleanup completed, finalizer removed")
-            
-    except Exception as e:
-        logger.error(f"[{name}]   ↳ Failed to cleanup workspace: {e}")
-        # Let the deletion continue even if cleanup failed partially
-        # Remove finalizer to prevent blocking
-        try:
-            new_finalizers = [f for f in current_finalizers if f != finalizer_name]
-            patch.metadata = patch.metadata or {}
-            patch.metadata['finalizers'] = new_finalizers
-            logger.warning(f"[{name}]   ↳ Removed finalizer despite cleanup failure to prevent blocking")
-        except Exception as patch_error:
-            logger.error(f"[{name}]   ↳ Failed to remove finalizer: {patch_error}")
-            # As last resort, raise temporary error to retry
-            raise kopf.TemporaryError(f"Cleanup and finalizer removal failed: {e}", delay=30)
-
-
-@kopf.on.delete('xdew.ch', 'v1', 'projects')
-def delete_project(name, **kwargs):
-    """Handle project deletion events."""
-    logger.info(f"[{name}] Deleting project")
-    
-    try:
-        # Add deletion audit entry
-        operator.add_audit_entry(
-            name, "projects", "system", "project-deleted", 
-            "deleted", "Project deletion initiated"
-        )
-        
-        # Clean up associated workspaces
-        operator.cleanup_project_workspaces(name)
-        
-        operator.add_audit_entry(
-            name, "projects", "system", "project-cleanup-completed", 
-            "deleted", "Project and associated workspaces deleted successfully"
-        )
-        
-    except Exception as e:
-        logger.error(f"[{name}]   ↳ Failed to handle project deletion: {e}")
-
-
 def main():
-    """Main entry point for the operator."""
     logger.info("Starting XDEW Kubernetes Operator v2")
     kopf.configure(verbose=True)
     kopf.run()
