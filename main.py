@@ -817,7 +817,7 @@ def create_workspace(spec, name, patch, uid, **kwargs):
         patch.status['createdAt'] = timestamp
 
 
-@kopf.on.field('xdew.ch', 'v1', 'workspaces', field='status.phase')
+@kopf.on.field('xdew.ch', 'v1', 'workspaces', field='status.phase', retries=1)
 def handle_workspace_phase_change(old, new, spec, name, uid, body, **kwargs):
     logger.info(f"[{name}] Phase changed from {old} to {new}")
     
@@ -851,7 +851,7 @@ def handle_workspace_phase_change(old, new, spec, name, uid, body, **kwargs):
         _handle_workspace_termination(name)
 
 
-@kopf.on.field('xdew.ch', 'v1', 'workspaces', field='status.approvals')
+@kopf.on.field('xdew.ch', 'v1', 'workspaces', field='status.approvals', retries=1)
 def handle_workspace_approvals_change(old, new, spec, name, body, **kwargs):
     if old != new and new:
         logger.info(f"[{name}] Approvals updated")
@@ -908,7 +908,7 @@ def handle_workspace_approvals_change(old, new, spec, name, body, **kwargs):
                 logger.error(f"[{name}] Failed to auto-reject workspace: {e}")
 
 
-@kopf.on.field('xdew.ch', 'v1', 'workspaces', field='spec.resources')
+@kopf.on.field('xdew.ch', 'v1', 'workspaces', field='spec.resources', retries=1)
 def handle_resource_quota_change(old, new, spec, name, **kwargs):
     if old != new and old is not None:
         logger.info(f"[{name}] Resource quota changed")
@@ -976,6 +976,9 @@ def delete_project(name, **kwargs):
     except Exception as e:
         logger.error(f"[{name}]   ↳ Failed to handle project deletion: {e}")
 
+@kopf.on.startup()
+def configure(settings: kopf.OperatorSettings, **_):
+    settings.persistence.progress_storage = kopf.AnnotationsProgressStorage(prefix='operator.xdew.ch')
 
 def _is_recent_timestamp(timestamp_str: str) -> bool:
     try:
@@ -1143,7 +1146,11 @@ def _handle_workspace_termination(name):
 
 def main():
     logger.info("Starting XDEW Kubernetes Operator v2")
-    kopf.configure(verbose=True)
+    kopf.configure(
+        verbose=False,
+        progress_storage=kopf.StatusProgressStorage(field='status.kopf'),
+        posting_level=logging.WARNING
+    )
     kopf.run()
 
 
