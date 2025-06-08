@@ -628,40 +628,53 @@ class XDEWOperator:
         try:
             logger.info(f"[{project_id}] Updating workspace count")
             
+            # Get all workspaces
             workspaces = self.custom_api.list_cluster_custom_object(
                 group="xdew.ch",
                 version="v1",
                 plural="workspaces"
             )
             
-            count = sum(
-                1 for ws in workspaces.get("items", [])
-                if ws.get("spec", {}).get("projectRef") == project_id
-            )
+            # Count workspaces for this project (excluding those being deleted)
+            count = 0
+            for ws in workspaces.get("items", []):
+                # Skip workspaces that are being deleted (have deletionTimestamp)
+                if ws.get("metadata", {}).get("deletionTimestamp"):
+                    continue
+                if ws.get("spec", {}).get("projectRef") == project_id:
+                    count += 1
             
-            project = self.custom_api.get_cluster_custom_object(
-                group="xdew.ch",
-                version="v1",
-                plural="projects",
-                name=project_id
-            )
-            
-            if "status" not in project:
-                project["status"] = {}
-            
-            project["status"]["workspaceCount"] = count
-            project["status"]["lastUpdated"] = datetime.now(timezone.utc).isoformat()
-            
-            self.custom_api.patch_cluster_custom_object(
-                group="xdew.ch",
-                version="v1",
-                plural="projects",
-                name=project_id,
-                body=project
-            )
-            
-            logger.info(f"[{project_id}]   ↳ Workspace count updated to {count}")
-            
+            # Update project status
+            try:
+                project = self.custom_api.get_cluster_custom_object(
+                    group="xdew.ch",
+                    version="v1",
+                    plural="projects",
+                    name=project_id
+                )
+                
+                if "status" not in project:
+                    project["status"] = {}
+                
+                project["status"]["workspaceCount"] = count
+                project["status"]["lastUpdated"] = datetime.now(timezone.utc).isoformat()
+                
+                self.custom_api.patch_cluster_custom_object(
+                    group="xdew.ch",
+                    version="v1",
+                    plural="projects",
+                    name=project_id,
+                    body=project
+                )
+                
+                logger.info(f"[{project_id}]   ↳ Workspace count updated to {count}")
+                
+            except ApiException as api_error:
+                if api_error.status == 404:
+                    logger.warning(f"[{project_id}]   ↳ Project not found, skipping count update")
+                else:
+                    raise api_error
+                
         except Exception as e:
             logger.error(f"[{project_id}] Failed to update workspace count: {e}")
     
@@ -694,12 +707,81 @@ class XDEWOperator:
                         logger.error(f"[{project_id}]   ↳ Failed to delete workspace {ws_name}: {e}")
             
             logger.info(f"[{project_id}]   ↳ Cleaned up {count} workspaces")
+        except Exception as e:
+            logger.error(f"[{project_id}] Failed to clean up workspaces: {e}")
+                        
+    def force_cleanup_stuck_workspaces(self) -> None:
+        """Force cleanup of workspaces stuck in deletion."""
+        try:
+            logger.info("Checking for stuck workspaces in deletion")
+            
+            workspaces = self.custom_api.list_cluster_custom_object(
+                group="xdew.ch",
+                version="v1",
+                plural="workspaces"
+            )
+            
+            finalizer_name = 'xdew.ch/workspace-cleanup'
+            
+            for ws in workspaces.get("items", []):
+                metadata = ws.get("metadata", {})
+                deletion_timestamp = metadata.get("deletionTimestamp")
+                finalizers = metadata.get("finalizers", [])
+                name = metadata.get("name", "unknown")
+                
+                # Check if workspace is stuck in deletion with our finalizer
+                if deletion_timestamp and finalizer_name in finalizers:
+                    logger.info(f"[{name}] Found stuck workspace, forcing cleanup")
+                    
+                    try:
+                        # Remove namespace directly
+                        try:
+                            self.v1.delete_namespace(name)
+                            logger.info(f"[{name}]   ↳ Namespace deletion initiated")
+                        except ApiException as e:
+                            if e.status == 404:
+                                logger.info(f"[{name}]   ↳ Namespace already deleted")
+                            else:
+                                logger.warning(f"[{name}]   ↳ Failed to delete namespace: {e}")
+                        
+                        # Update project count
+                        project_ref = ws.get("spec", {}).get("projectRef")
+                        if project_ref:
+                            self.update_project_workspace_count(project_ref)
+                        
+                        # Remove finalizer to unblock deletion
+                        new_finalizers = [f for f in finalizers if f != finalizer_name]
+                        patch_body = {
+                            "metadata": {
+                                "finalizers": new_finalizers
+                            }
+                        }
+                        
+                        self.custom_api.patch_cluster_custom_object(
+                            group="xdew.ch",
+                            version="v1",
+                            plural="workspaces",
+                            name=name,
+                            body=patch_body
+                        )
+                        
+                        logger.info(f"[{name}]   ↳ Forced cleanup completed")
+                        
+                    except Exception as cleanup_error:
+                        logger.error(f"[{name}]   ↳ Failed to force cleanup: {cleanup_error}")
                         
         except Exception as e:
-            logger.error(f"[{project_id}] Failed to cleanup workspaces: {e}")
+            logger.error(f"Failed to check for stuck workspaces: {e}")
 
 
-# Global operator instance
+# Add a timer to periodically check for stuck workspaces
+@kopf.timer('xdew.ch', 'v1', 'workspaces', interval=300)  # Every 5 minutes
+def cleanup_stuck_workspaces_timer(**kwargs):
+    """Timer to periodically clean up stuck workspaces."""
+    try:
+        operator.force_cleanup_stuck_workspaces()
+    except Exception as e:
+        logger.error(f"Failed to run stuck workspace cleanup timer: {e}")
 operator = XDEWOperator()
 
 
@@ -823,6 +905,12 @@ def create_workspace(spec, name, patch, uid, **kwargs):
             logger.warning(f"[{name}]   ↳ {message}")
             return
         
+        # Add finalizer to ensure proper cleanup
+        if not hasattr(patch, 'metadata') or patch.metadata is None:
+            patch.metadata = {}
+        
+        patch.metadata['finalizers'] = ['xdew.ch/workspace-cleanup']
+        
         # Set owner reference to project
         project_ref_obj = {
             "apiVersion": "xdew.ch/v1",
@@ -832,8 +920,6 @@ def create_workspace(spec, name, patch, uid, **kwargs):
         }
         
         if project_ref_obj["uid"]:
-            if not hasattr(patch, 'metadata') or patch.metadata is None:
-                patch.metadata = {}
             patch.metadata['ownerReferences'] = [project_ref_obj]
         
         # Set default resource quota if not provided
@@ -1187,25 +1273,77 @@ def _handle_workspace_termination(name):
 
 
 @kopf.on.delete('xdew.ch', 'v1', 'workspaces')
-def delete_workspace(spec, name, **kwargs):
+def delete_workspace(spec, name, body, **kwargs):
     """Handle workspace deletion events."""
     logger.info(f"[{name}] Deleting workspace")
     
     try:
         project_ref = spec.get('projectRef')
         
-        # Add deletion audit entry
-        operator.add_audit_entry(
-            name, "workspaces", "system", "workspace-deleted", 
-            "deleted", "Workspace deletion initiated"
-        )
+        # Delete workspace resources first
+        operator.delete_workspace_resources(name)
+        
+        # Update project workspace count AFTER deletion
+        if project_ref:
+            try:
+                # Update count in a separate try block to ensure it happens
+                operator.update_project_workspace_count(project_ref)
+                logger.info(f"[{name}]   ↳ Updated workspace count for project {project_ref}")
+            except Exception as count_error:
+                logger.error(f"[{name}]   ↳ Failed to update project workspace count: {count_error}")
+        
+        logger.info(f"[{name}]   ↳ Workspace deletion completed")
+            
+    except Exception as e:
+        logger.error(f"[{name}]   ↳ Failed to handle workspace deletion: {e}")
+
+
+# Alternative approach using finalizer handler
+@kopf.on.delete('xdew.ch', 'v1', 'workspaces', optional=True)
+def cleanup_workspace_finalizer(spec, name, body, patch, **kwargs):
+    """Handle workspace cleanup with finalizer - alternative approach."""
+    finalizer_name = 'xdew.ch/workspace-cleanup'
+    current_finalizers = body.get("metadata", {}).get("finalizers", [])
+    
+    # Only process if our finalizer is present
+    if finalizer_name not in current_finalizers:
+        return
+    
+    logger.info(f"[{name}] Processing workspace cleanup with finalizer")
+    
+    try:
+        project_ref = spec.get('projectRef')
+        
+        # Delete workspace resources
+        operator.delete_workspace_resources(name)
         
         # Update project workspace count
         if project_ref:
             operator.update_project_workspace_count(project_ref)
+            logger.info(f"[{name}]   ↳ Updated workspace count for project {project_ref}")
+        
+        # Remove our finalizer to allow deletion
+        new_finalizers = [f for f in current_finalizers if f != finalizer_name]
+        
+        # Use kopf patch mechanism to remove finalizer
+        patch.metadata = patch.metadata or {}
+        patch.metadata['finalizers'] = new_finalizers
+        
+        logger.info(f"[{name}]   ↳ Workspace cleanup completed, finalizer removed")
             
     except Exception as e:
-        logger.error(f"[{name}]   ↳ Failed to handle workspace deletion: {e}")
+        logger.error(f"[{name}]   ↳ Failed to cleanup workspace: {e}")
+        # Let the deletion continue even if cleanup failed partially
+        # Remove finalizer to prevent blocking
+        try:
+            new_finalizers = [f for f in current_finalizers if f != finalizer_name]
+            patch.metadata = patch.metadata or {}
+            patch.metadata['finalizers'] = new_finalizers
+            logger.warning(f"[{name}]   ↳ Removed finalizer despite cleanup failure to prevent blocking")
+        except Exception as patch_error:
+            logger.error(f"[{name}]   ↳ Failed to remove finalizer: {patch_error}")
+            # As last resort, raise temporary error to retry
+            raise kopf.TemporaryError(f"Cleanup and finalizer removal failed: {e}", delay=30)
 
 
 @kopf.on.delete('xdew.ch', 'v1', 'projects')
