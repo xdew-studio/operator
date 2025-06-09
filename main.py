@@ -998,7 +998,6 @@ def handle_resource_quota_change(old, new, spec, name, **kwargs):
     if old != new and old is not None:
         logger.info(f"[{name}] Resource quota changed")
         
-        # Check if the workspace has resources before attempting update
         if not operator.workspace_has_resources(name):
             logger.info(f"[{name}] No resources exist yet, quota will be applied when workspace becomes active")
             operator.add_audit_entry(
@@ -1035,22 +1034,18 @@ def delete_workspace(spec, name, body, **kwargs):
         project_ref = spec.get('projectRef')
         current_phase = body.get("status", {}).get("phase", "unknown")
         
-        # Check if deletion is due to parent project deletion
         is_project_deletion = operator.is_workspace_deletion_due_to_project(body)
         
         if is_project_deletion:
             logger.info(f"[{name}] Workspace deletion triggered by project deletion")
         
-        # Determine if we expect resources to exist
         expected_resources = operator.workspace_should_have_resources(current_phase)
         
         if not expected_resources:
             logger.info(f"[{name}] Workspace in phase '{current_phase}' should not have resources")
         
-        # Delete resources if they exist
         operator.delete_workspace_resources(name, expected_to_exist=expected_resources)
         
-        # Update project counter only if project still exists
         if project_ref and not is_project_deletion:
             try:
                 time.sleep(1)
@@ -1236,7 +1231,6 @@ def _handle_workspace_termination(spec, name):
     try:
         logger.info(f"[{name}] Processing workspace termination")
         
-        # Determine if resources should exist
         has_resources = operator.workspace_has_resources(name)
         
         if has_resources:
