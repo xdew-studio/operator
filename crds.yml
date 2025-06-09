@@ -21,25 +21,36 @@ spec:
                 description:
                   type: string
                   description: "Project description"
-                userId:
+                owner:
                   type: string
-                  description: "Owner user ID"
+                  description: "Project owner identifier"
+                team:
+                  type: array
+                  description: "List of team groups with access"
+                  items:
+                    type: string
               required:
                 - name
-                - userId
+                - description
+                - owner
+                - team
             status:
               type: object
               properties:
-                currentState:
+                phase:
                   type: string
-                  description: "Current project state"
+                  enum: ["active", "suspended", "terminated"]
+                  default: "active"
+                workspaceCount:
+                  type: integer
+                  default: 0
+                createdAt:
+                  type: string
+                  format: date-time
                 lastUpdated:
                   type: string
                   format: date-time
-                namespacesCount:
-                  type: integer
-                  default: 0
-                history:
+                auditLog:
                   type: array
                   items:
                     type: object
@@ -47,29 +58,38 @@ spec:
                       timestamp:
                         type: string
                         format: date-time
-                      state:
-                        type: string
-                      message:
-                        type: string
                       user:
+                        type: string
+                      action:
+                        type: string
+                      status:
+                        type: string
+                      comment:
                         type: string
                     required:
                       - timestamp
-                      - state
-                      - message
+                      - user
+                      - action
+                      - status
+              required:
+                - phase
+                - workspaceCount
+                - createdAt
+                - lastUpdated
+                - auditLog
       additionalPrinterColumns:
         - name: Display Name
           type: string
           jsonPath: .spec.name
         - name: Owner
           type: string
-          jsonPath: .spec.userId
-        - name: State
+          jsonPath: .spec.owner
+        - name: Phase
           type: string
-          jsonPath: .status.currentState
+          jsonPath: .status.phase
         - name: Workspaces
           type: integer
-          jsonPath: .status.namespacesCount
+          jsonPath: .status.workspaceCount
         - name: Age
           type: date
           jsonPath: .metadata.creationTimestamp
@@ -97,47 +117,93 @@ spec:
             spec:
               type: object
               properties:
+                projectRef:
+                  type: string
+                  description: "Reference to parent project (metadata.name)"
+                  x-kubernetes-validations:
+                    - rule: "self == oldSelf"
+                      message: "projectRef is immutable"
                 name:
                   type: string
                   description: "Workspace display name"
                 description:
                   type: string
                   description: "Workspace description"
-                projectId:
+                requester:
                   type: string
-                  description: "Parent project ID (metadata.name)"
-                  x-kubernetes-validations:
-                    - rule: "self == oldSelf"
-                      message: "projectId is immutable"
-                resourceQuota:
+                  description: "User who requested the workspace"
+                environment:
+                  type: string
+                  enum: ["development", "staging", "production", "testing"]
+                  description: "Environment type"
+                resources:
                   type: object
                   properties:
                     cpu:
                       type: string
-                      default: "2"
+                      default: "1000m"
                     memory:
                       type: string
-                      default: "4Gi"
+                      default: "2Gi"
                     storage:
                       type: string
                       default: "10Gi"
-                    pods:
-                      type: string
-                      default: "10"
+                  required:
+                    - cpu
+                    - memory
+                    - storage
+                approvers:
+                  type: array
+                  description: "List of groups that can approve this workspace"
+                  items:
+                    type: string
               required:
+                - projectRef
                 - name
-                - projectId
+                - description
+                - requester
+                - environment
+                - resources
+                - approvers
             status:
               type: object
               properties:
-                currentState:
+                phase:
                   type: string
-                  enum: ["requested", "accepted", "rejected", "deleted"]
-                  default: "requested"
-                lastUpdated:
+                  enum:
+                    [
+                      "pending",
+                      "approved",
+                      "rejected",
+                      "active",
+                      "suspended",
+                      "terminated",
+                    ]
+                  default: "pending"
+                approvals:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      user:
+                        type: string
+                      decision:
+                        type: string
+                        enum: ["approved", "rejected"]
+                      timestamp:
+                        type: string
+                        format: date-time
+                      comment:
+                        type: string
+                    required:
+                      - user
+                      - decision
+                      - timestamp
+                      - comment
+                namespaceRef:
                   type: string
-                  format: date-time
-                history:
+                  description: "Reference to the created namespace"
+                auditLog:
                   type: array
                   items:
                     type: object
@@ -145,26 +211,47 @@ spec:
                       timestamp:
                         type: string
                         format: date-time
-                      state:
-                        type: string
-                      message:
-                        type: string
                       user:
+                        type: string
+                      action:
+                        type: string
+                      status:
+                        type: string
+                      comment:
                         type: string
                     required:
                       - timestamp
-                      - state
-                      - message
+                      - user
+                      - action
+                      - status
+                      - comment
+                createdAt:
+                  type: string
+                  format: date-time
+                approvedAt:
+                  type: string
+                  format: date-time
+              required:
+                - phase
+                - approvals
+                - auditLog
+                - createdAt
       additionalPrinterColumns:
         - name: Display Name
           type: string
           jsonPath: .spec.name
-        - name: State
+        - name: Phase
           type: string
-          jsonPath: .status.currentState
+          jsonPath: .status.phase
         - name: Project
           type: string
-          jsonPath: .spec.projectId
+          jsonPath: .spec.projectRef
+        - name: Environment
+          type: string
+          jsonPath: .spec.environment
+        - name: Requester
+          type: string
+          jsonPath: .spec.requester
         - name: Age
           type: date
           jsonPath: .metadata.creationTimestamp
