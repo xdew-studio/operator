@@ -148,19 +148,13 @@ jobs:
                     COMMITS_COUNT=$(git rev-list HEAD --count)
                     AUTHORS=$(git log --pretty=format:"%an" | sort -u | sed 's/.*$/`&`/' | paste -sd ',' | sed 's/,/, /g')
                     COMMITS=$(git log --oneline -10 --pretty=format:"%h %s")
-                    echo "🐍 Initial Python release v$VERSION with $COMMITS_COUNT commits by $AUTHORS." >> release_notes.txt
+                    echo "Release v$VERSION with $COMMITS_COUNT commits by $AUTHORS." >> release_notes.txt
                   else
                     COMMITS_COUNT=$(git rev-list ${LAST_TAG}..HEAD --count)
                     AUTHORS=$(git log ${LAST_TAG}..HEAD --pretty=format:"%an" | sort -u | sed 's/.*$/`&`/' | paste -sd ',' | sed 's/,/, /g')
                     COMMITS=$(git log --oneline ${LAST_TAG}..HEAD --pretty=format:"%h %s")
-                    echo "🐍 Python release v$VERSION includes $COMMITS_COUNT commits since $LAST_TAG by $AUTHORS." >> release_notes.txt
+                    echo "Release v$VERSION includes $COMMITS_COUNT commits since $LAST_TAG by $AUTHORS." >> release_notes.txt
                   fi
-
-                  echo "" >> release_notes.txt
-                  echo "## 🐳 Docker Images" >> release_notes.txt
-                  echo "- \`${{ env.REGISTRY_PATH }}:$VERSION\`" >> release_notes.txt
-                  echo "- \`${{ env.REGISTRY_PATH }}:latest\`" >> release_notes.txt
-                  echo "" >> release_notes.txt
 
                   FEATURE_COMMITS=$(echo "$COMMITS" | grep -iE "\[(add|feat|feature)\]" | sed 's/^/- /' || echo "")
                   if [ -n "$FEATURE_COMMITS" ]; then
