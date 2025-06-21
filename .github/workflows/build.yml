@@ -194,7 +194,7 @@ jobs:
               run: |
                   VERSION="${{ needs.detect-version.outputs.version }}"
                   TAG_NAME="v$VERSION"
-                  RELEASE_TITLE="🐍 Python Release v$VERSION"
+                  RELEASE_TITLE="v$VERSION"
                   
                   if ! gh release create "$TAG_NAME" \
                     --title "$RELEASE_TITLE" \
