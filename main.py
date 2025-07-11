@@ -506,8 +506,6 @@ class RBACManager(ResourceManager):
                 verbs=["get", "list", "watch"]
             )
         ]
-        ]
-
 
 class XDEWOperator:
     
