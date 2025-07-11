@@ -174,17 +174,17 @@ class NamespaceManager(ResourceManager):
         except ApiException as e:
             if e.status == 404:
                 return False
-            logger.error(f"[{workspace_name}] Error checking namespace existence: {e}")
+            logger.error(f"[workspace/{workspace_name}] Error checking namespace existence: {e}")
             return False
     
     def create(self, workspace_name: str, workspace_info: WorkspaceInfo, 
                owner_ref: Dict[str, Any]) -> bool:
         try:
             if self.exists(workspace_name):
-                logger.info(f"[{workspace_name}] Namespace already exists, skipping creation")
+                logger.info(f"[workspace/{workspace_name}] Namespace already exists, skipping creation")
                 return True
                 
-            logger.info(f"[{workspace_name}] Creating namespace")
+            logger.info(f"[workspace/{workspace_name}] Creating namespace")
             
             namespace = kubernetes.client.V1Namespace(
                 metadata=kubernetes.client.V1ObjectMeta(
@@ -203,27 +203,27 @@ class NamespaceManager(ResourceManager):
                 )
             )
             self.v1.create_namespace(namespace)
-            logger.info(f"[{workspace_name}]  ↳ Namespace created successfully")
+            logger.info(f"[workspace/{workspace_name}]  ↳ Namespace created successfully")
             return True
         except ApiException as e:
-            logger.error(f"[{workspace_name}]  ↳ Failed to create namespace: {e}")
+            logger.error(f"[workspace/{workspace_name}]  ↳ Failed to create namespace: {e}")
             return False
     
     def delete(self, workspace_name: str) -> bool:
         try:
             if not self.exists(workspace_name):
-                logger.info(f"[{workspace_name}] Namespace doesn't exist, nothing to delete")
+                logger.info(f"[workspace/{workspace_name}] Namespace doesn't exist, nothing to delete")
                 return True
                 
-            logger.info(f"[{workspace_name}] Deleting namespace")
+            logger.info(f"[workspace/{workspace_name}] Deleting namespace")
             self.v1.delete_namespace(workspace_name)
-            logger.info(f"[{workspace_name}]  ↳ Namespace deleted successfully")
+            logger.info(f"[workspace/{workspace_name}]  ↳ Namespace deleted successfully")
             return True
         except ApiException as e:
             if e.status == 404:
-                logger.info(f"[{workspace_name}]  ↳ Namespace already deleted")
+                logger.info(f"[workspace/{workspace_name}]  ↳ Namespace already deleted")
                 return True
-            logger.error(f"[{workspace_name}]  ↳ Failed to delete namespace: {e}")
+            logger.error(f"[workspace/{workspace_name}]  ↳ Failed to delete namespace: {e}")
             return False
 
 
@@ -243,17 +243,17 @@ class ResourceQuotaManager(ResourceManager):
         except ApiException as e:
             if e.status == 404:
                 return False
-            logger.error(f"[{workspace_name}] Error checking resource quota existence: {e}")
+            logger.error(f"[workspace/{workspace_name}] Error checking resource quota existence: {e}")
             return False
     
     def create(self, workspace_name: str, quota: ResourceQuota,
                owner_ref: Dict[str, Any]) -> bool:
         try:
             if self.exists(workspace_name):
-                logger.info(f"[{workspace_name}] Resource quota already exists, updating instead")
+                logger.info(f"[workspace/{workspace_name}] Resource quota already exists, updating instead")
                 return self.update(workspace_name, quota)
                 
-            logger.info(f"[{workspace_name}] Creating resource quota")
+            logger.info(f"[workspace/{workspace_name}] Creating resource quota")
             
             resource_quota = kubernetes.client.V1ResourceQuota(
                 metadata=kubernetes.client.V1ObjectMeta(
@@ -271,19 +271,19 @@ class ResourceQuotaManager(ResourceManager):
                 )
             )
             self.v1.create_namespaced_resource_quota(workspace_name, resource_quota)
-            logger.info(f"[{workspace_name}]  ↳ Resource quota created successfully")
+            logger.info(f"[workspace/{workspace_name}]  ↳ Resource quota created successfully")
             return True
         except ApiException as e:
-            logger.error(f"[{workspace_name}]  ↳ Failed to create resource quota: {e}")
+            logger.error(f"[workspace/{workspace_name}]  ↳ Failed to create resource quota: {e}")
             return False
     
     def update(self, workspace_name: str, quota: ResourceQuota) -> bool:
         try:
             if not self.exists(workspace_name):
-                logger.warning(f"[{workspace_name}] Resource quota doesn't exist, cannot update")
+                logger.warning(f"[workspace/{workspace_name}] Resource quota doesn't exist, cannot update")
                 return False
                 
-            logger.info(f"[{workspace_name}] Updating resource quota")
+            logger.info(f"[workspace/{workspace_name}] Updating resource quota")
             
             resource_quota = self.v1.read_namespaced_resource_quota(
                 name="xdew-quota",
@@ -302,10 +302,10 @@ class ResourceQuotaManager(ResourceManager):
                 namespace=workspace_name,
                 body=resource_quota
             )
-            logger.info(f"[{workspace_name}]  ↳ Resource quota updated successfully")
+            logger.info(f"[workspace/{workspace_name}]  ↳ Resource quota updated successfully")
             return True
         except ApiException as e:
-            logger.error(f"[{workspace_name}]  ↳ Failed to update resource quota: {e}")
+            logger.error(f"[workspace/{workspace_name}]  ↳ Failed to update resource quota: {e}")
             return False
     
     def delete(self, workspace_name: str) -> bool:
@@ -320,13 +320,13 @@ class RBACManager(ResourceManager):
     def create(self, workspace_name: str, workspace_info: WorkspaceInfo,
                project_info: ProjectInfo, owner_ref: Dict[str, Any]) -> bool:
         try:
-            logger.info(f"[{workspace_name}] Creating RBAC resources")
+            logger.info(f"[workspace/{workspace_name}] Creating RBAC resources")
             self._create_workspace_roles(workspace_name, workspace_info, owner_ref)
             self._create_team_bindings(workspace_name, project_info, owner_ref)
-            logger.info(f"[{workspace_name}]  ↳ RBAC resources created successfully")
+            logger.info(f"[workspace/{workspace_name}]  ↳ RBAC resources created successfully")
             return True
         except ApiException as e:
-            logger.error(f"[{workspace_name}]  ↳ Failed to create RBAC resources: {e}")
+            logger.error(f"[workspace/{workspace_name}]  ↳ Failed to create RBAC resources: {e}")
             return False
     
     def delete(self, workspace_name: str) -> bool:
@@ -587,15 +587,15 @@ class XDEWOperator:
             return True
             
         except Exception as e:
-            logger.error(f"[{workspace_name}] Failed to create workspace resources: {e}")
+            logger.error(f"[workspace/{workspace_name}] Failed to create workspace resources: {e}")
             return False
     
     def update_workspace_resources(self, workspace_name: str, quota: ResourceQuota) -> bool:
         try:
-            logger.info(f"[{workspace_name}] Updating workspace resources")
+            logger.info(f"[workspace/{workspace_name}] Updating workspace resources")
             return self.quota_manager.update(workspace_name, quota)
         except Exception as e:
-            logger.error(f"[{workspace_name}] Failed to update workspace resources: {e}")
+            logger.error(f"[workspace/{workspace_name}] Failed to update workspace resources: {e}")
             return False
     
     def delete_workspace_resources(self, workspace_name: str, expected_to_exist: bool = True) -> bool:
@@ -604,7 +604,7 @@ class XDEWOperator:
         expected_to_exist: indicates if we expect the resources to exist
         """
         if not expected_to_exist and not self.workspace_has_resources(workspace_name):
-            logger.info(f"[{workspace_name}] No resources to delete (as expected)")
+            logger.info(f"[workspace/{workspace_name}] No resources to delete (as expected)")
             return True
         
         return self.namespace_manager.delete(workspace_name)
@@ -655,7 +655,7 @@ class XDEWOperator:
         """
         try:
             if not force and self.has_recent_audit_entry(name, resource_type, action, status):
-                logger.debug(f"[{name}] Skipping duplicate audit entry: {action} - {status}")
+                logger.debug(f"[{resource_type[:-1]}/{name}] Skipping duplicate audit entry: {action} - {status}")
                 return
             
             resource = self.custom_api.get_cluster_custom_object(
@@ -692,9 +692,9 @@ class XDEWOperator:
                 name=name,
                 body=resource
             )
-            logger.info(f"[{name}] Audit entry added: {action} - {status}")
+            logger.info(f"[{resource_type[:-1]}/{name}] Audit entry added: {action} - {status}")
         except Exception as e:
-            logger.error(f"[{name}] Failed to add audit entry: {e}")
+            logger.error(f"[{resource_type[:-1]}/{name}] Failed to add audit entry: {e}")
     
     def update_project_workspace_count(self, project_id: str) -> None:
         try:
@@ -811,20 +811,20 @@ class XDEWOperator:
                     body=project
                 )
                 
-                logger.info(f"[{project_id}]  ↳ Workspace count updated to {count}")
+                logger.info(f"[project/{project_id}]  ↳ Workspace count updated to {count}")
                 
             except ApiException as api_error:
                 if api_error.status == 404:
-                    logger.warning(f"[{project_id}]  ↳ Project not found, skipping count update")
+                    logger.warning(f"[project/{project_id}]  ↳ Project not found, skipping count update")
                 else:
                     raise api_error
                 
         except Exception as e:
-            logger.error(f"[{project_id}] Failed to update workspace count: {e}")
+            logger.error(f"[project/{project_id}] Failed to update workspace count: {e}")
     
     def cleanup_project_workspaces(self, project_id: str) -> None:
         try:
-            logger.info(f"[{project_id}] Cleaning up associated workspaces")
+            logger.info(f"[project/{project_id}] Cleaning up associated workspaces")
             
             workspaces = self.custom_api.list_cluster_custom_object(
                 group="xdew.ch",
@@ -836,7 +836,7 @@ class XDEWOperator:
             for ws in workspaces.get("items", []):
                 if ws.get("spec", {}).get("projectRef") == project_id:
                     ws_name = ws["metadata"]["name"]
-                    logger.info(f"[{project_id}]  ↳ Deleting workspace: {ws_name}")
+                    logger.info(f"[project/{project_id}]  ↳ Deleting workspace: {ws_name}")
                     
                     try:
                         self.custom_api.delete_cluster_custom_object(
@@ -847,12 +847,12 @@ class XDEWOperator:
                         )
                         count += 1
                     except Exception as e:
-                        logger.error(f"[{project_id}]  ↳ Failed to delete workspace {ws_name}: {e}")
+                        logger.error(f"[project/{project_id}]  ↳ Failed to delete workspace {ws_name}: {e}")
             
-            logger.info(f"[{project_id}]  ↳ Cleaned up {count} workspaces")
+            logger.info(f"[project/{project_id}]  ↳ Cleaned up {count} workspaces")
                         
         except Exception as e:
-            logger.error(f"[{project_id}] Failed to cleanup workspaces: {e}")
+            logger.error(f"[project/{project_id}] Failed to cleanup workspaces: {e}")
 
 
 operator = XDEWOperator()
