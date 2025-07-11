@@ -1031,28 +1031,6 @@ def handle_workspace_phase_change(old, new, spec, name, uid, body, **kwargs):
     if not user:
         user = "system"
 
-    should_skip_audit = False
-    
-    if new == WorkspacePhase.APPROVED.value:
-        should_skip_audit = operator.has_recent_audit_entry(
-            name, "workspaces", "workspace-approved", "approved", 5
-        )
-    elif new == WorkspacePhase.ACTIVE.value:
-        should_skip_audit = operator.has_recent_audit_entry(
-            name, "workspaces", "namespace-created", "active", 5
-        )
-    elif new == WorkspacePhase.TERMINATED.value:
-        should_skip_audit = operator.has_recent_audit_entry(
-            name, "workspaces", "workspace-terminated", "terminated", 5
-        )
-    
-    if not should_skip_audit:
-        message = f"Phase manually changed to {new}"
-        if user != "system":
-            message += f" by {user}"
-        
-        operator.add_audit_entry(name, "workspaces", user, "phase-changed", new, message)
-    
     if new == WorkspacePhase.APPROVED.value:
         _handle_workspace_approval(spec, name, uid, body)
     elif new == WorkspacePhase.ACTIVE.value:
