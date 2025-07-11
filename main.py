@@ -127,7 +127,7 @@ class ProjectInfo:
     name: str
     description: str
     owner: str
-    team: List[str]
+    teams: List[str]
     metadata: Dict[str, Any] = field(default_factory=dict)
     spec: Dict[str, Any] = field(default_factory=dict)
     status: Dict[str, Any] = field(default_factory=dict)
@@ -406,7 +406,7 @@ class RBACManager(ResourceManager):
     
     def _create_team_bindings(self, workspace_name: str, project_info: ProjectInfo,
                              owner_ref: Dict[str, Any]) -> None:
-        for team in project_info.team:
+        for team in project_info.teams:
             if "admin" in team.lower():
                 role_name = f"{workspace_name}-admin"
             elif "readonly" in team.lower() or "read" in team.lower():
@@ -556,7 +556,7 @@ class XDEWOperator:
                 name=spec.get("name", ""),
                 description=spec.get("description", ""),
                 owner=spec.get("owner", ""),
-                team=spec.get("team", []),
+                teams=spec.get("teams", []),
                 metadata=project.get("metadata", {}),
                 spec=spec,
                 status=project.get("status", {})
@@ -745,10 +745,10 @@ def create_project(spec, name, patch, **kwargs):
         project_name = spec.get('name')
         description = spec.get('description')
         owner = spec.get('owner')
-        team = spec.get('team', [])
+        teams = spec.get('teams', [])
         
-        if not all([project_name, description, owner, team]):
-            message = "Missing required fields: name, description, owner, or team"
+        if not all([project_name, description, owner, teams]):
+            message = "Missing required fields: name, description, owner, or teams"
             logger.error(f"[{name}]  ↳ {message}")
             patch.status['phase'] = ProjectPhase.SUSPENDED.value
             patch.status['workspaceCount'] = 0
