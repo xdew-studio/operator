@@ -484,11 +484,28 @@ class RBACManager(ResourceManager):
     @staticmethod
     def _get_readonly_policy_rules() -> List[kubernetes.client.V1PolicyRule]:
         return [
+            return [
             kubernetes.client.V1PolicyRule(
-                api_groups=["", "apps", "extensions", "networking.k8s.io"],
-                resources=["*"],
+                api_groups=[""],
+                resources=["pods", "services", "configmaps", "secrets", "persistentvolumeclaims"],
+                verbs=["get", "list", "watch"]
+            ),
+            kubernetes.client.V1PolicyRule(
+                api_groups=["apps"],
+                resources=["deployments", "replicasets", "statefulsets", "daemonsets"],
+                verbs=["get", "list", "watch"]
+            ),
+            kubernetes.client.V1PolicyRule(
+                api_groups=["networking.k8s.io"],
+                resources=["ingresses", "networkpolicies"],
+                verbs=["get", "list", "watch"]
+            ),
+            kubernetes.client.V1PolicyRule(
+                api_groups=[""],
+                resources=["events"],
                 verbs=["get", "list", "watch"]
             )
+        ]
         ]
 
 
