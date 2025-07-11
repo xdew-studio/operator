@@ -484,7 +484,6 @@ class RBACManager(ResourceManager):
     @staticmethod
     def _get_readonly_policy_rules() -> List[kubernetes.client.V1PolicyRule]:
         return [
-            return [
             kubernetes.client.V1PolicyRule(
                 api_groups=[""],
                 resources=["pods", "services", "configmaps", "secrets", "persistentvolumeclaims"],
