@@ -610,9 +610,55 @@ class XDEWOperator:
         
         return self.namespace_manager.delete(workspace_name)
     
-    def add_audit_entry(self, name: str, resource_type: str, user: str, 
-                       action: str, status: str, comment: str) -> None:
+    def has_recent_audit_entry(self, name: str, resource_type: str, action: str, 
+                              status: str, threshold_seconds: int = 30) -> bool:
+        """Check if there's a recent audit entry with the same action and status"""
         try:
+            resource = self.custom_api.get_cluster_custom_object(
+                group="xdew.ch",
+                version="v1",
+                plural=resource_type,
+                name=name
+            )
+            
+            audit_log = resource.get("status", {}).get("auditLog", [])
+            if not audit_log:
+                return False
+            
+            recent_entries = audit_log[-5:]
+            now = datetime.now(timezone.utc)
+            
+            for entry in reversed(recent_entries):
+                if (entry.get("action") == action and 
+                    entry.get("status") == status):
+                    
+                    try:
+                        entry_time = datetime.fromisoformat(
+                            entry["timestamp"].replace('Z', '+00:00')
+                        )
+                        if (now - entry_time).total_seconds() < threshold_seconds:
+                            return True
+                    except (ValueError, KeyError):
+                        continue
+            
+            return False
+            
+        except Exception as e:
+            logger.error(f"[{name}] Failed to check recent audit entries: {e}")
+            return False
+    
+    def add_audit_entry(self, name: str, resource_type: str, user: str, 
+                       action: str, status: str, comment: str, 
+                       force: bool = False) -> None:
+        """
+        Add audit entry with duplicate prevention
+        force: if True, skip duplicate check
+        """
+        try:
+            if not force and self.has_recent_audit_entry(name, resource_type, action, status):
+                logger.debug(f"[{name}] Skipping duplicate audit entry: {action} - {status}")
+                return
+            
             resource = self.custom_api.get_cluster_custom_object(
                 group="xdew.ch",
                 version="v1",
@@ -906,22 +952,26 @@ def create_workspace(spec, name, patch, uid, **kwargs):
 def handle_workspace_phase_change(old, new, spec, name, uid, body, **kwargs):
     logger.info(f"[{name}] Phase changed from {old} to {new}")
     
-    current_status = body.get("status", {})
-    audit_log = current_status.get("auditLog", [])
+    user = _extract_user_from_patch(body)
+    if not user:
+        user = "system"
+            
+    should_skip_audit = False
     
-    should_add_audit = True
-    if audit_log:
-        last_entry = audit_log[-1]
-        if (last_entry.get("status") == new and 
-            last_entry.get("timestamp") and
-            _is_recent_timestamp(last_entry["timestamp"])):
-            should_add_audit = False
-    
-    if should_add_audit:
-        user = _extract_user_from_patch(body)
-        if not user:
-            user = "system"
+    if new == WorkspacePhase.APPROVED.value:        
+        should_skip_audit = operator.has_recent_audit_entry(
+            name, "workspaces", "workspace-approved", "approved", 5
+        )
+    elif new == WorkspacePhase.ACTIVE.value:        
+        should_skip_audit = operator.has_recent_audit_entry(
+            name, "workspaces", "namespace-created", "active", 5
+        )
+    elif new == WorkspacePhase.TERMINATED.value:        
+        should_skip_audit = operator.has_recent_audit_entry(
+            name, "workspaces", "workspace-terminated", "terminated", 5
+        )
         
+    if not should_skip_audit:
         message = f"Phase manually changed to {new}"
         if user != "system":
             message += f" by {user}"
