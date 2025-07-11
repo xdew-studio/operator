@@ -1,0 +1,160 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: workspaces.xdew.ch
+spec:
+  group: xdew.ch
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                projectRef:
+                  type: string
+                  description: "Reference to parent project (metadata.name)"
+                  x-kubernetes-validations:
+                    - rule: "self == oldSelf"
+                      message: "projectRef is immutable"
+                name:
+                  type: string
+                  description: "Workspace display name"
+                description:
+                  type: string
+                  description: "Workspace description"
+                requester:
+                  type: string
+                  description: "User who requested the workspace"
+                environment:
+                  type: string
+                  enum: ["development", "staging", "production", "testing"]
+                  description: "Environment type"
+                resources:
+                  type: object
+                  properties:
+                    cpu:
+                      type: string
+                      default: "1000m"
+                    memory:
+                      type: string
+                      default: "2Gi"
+                    storage:
+                      type: string
+                      default: "10Gi"
+                  required:
+                    - cpu
+                    - memory
+                    - storage
+                approvers:
+                  type: array
+                  description: "List of groups that can approve this workspace"
+                  items:
+                    type: string
+              required:
+                - projectRef
+                - name
+                - description
+                - requester
+                - environment
+                - resources
+                - approvers
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum:
+                    [
+                      "pending",
+                      "approved",
+                      "rejected",
+                      "active",
+                      "suspended",
+                      "terminated",
+                    ]
+                  default: "pending"
+                approvals:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      user:
+                        type: string
+                      decision:
+                        type: string
+                        enum: ["approved", "rejected"]
+                      timestamp:
+                        type: string
+                        format: date-time
+                      comment:
+                        type: string
+                    required:
+                      - user
+                      - decision
+                      - timestamp
+                      - comment
+                namespaceRef:
+                  type: string
+                  description: "Reference to the created namespace"
+                auditLog:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      timestamp:
+                        type: string
+                        format: date-time
+                      user:
+                        type: string
+                      action:
+                        type: string
+                      status:
+                        type: string
+                      comment:
+                        type: string
+                    required:
+                      - timestamp
+                      - user
+                      - action
+                      - status
+                      - comment
+                createdAt:
+                  type: string
+                  format: date-time
+                approvedAt:
+                  type: string
+                  format: date-time
+              required:
+                - phase
+                - approvals
+                - auditLog
+                - createdAt
+      additionalPrinterColumns:
+        - name: Display Name
+          type: string
+          jsonPath: .spec.name
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Project
+          type: string
+          jsonPath: .spec.projectRef
+        - name: Environment
+          type: string
+          jsonPath: .spec.environment
+        - name: Requester
+          type: string
+          jsonPath: .spec.requester
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+  scope: Cluster
+  names:
+    plural: workspaces
+    singular: workspace
+    kind: Workspace
