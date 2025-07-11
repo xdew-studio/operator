@@ -33,7 +33,7 @@ spec:
                               - name
                               - description
                               - owner
-                              - team
+                              - teams
                       status:
                           type: object
                           properties:
