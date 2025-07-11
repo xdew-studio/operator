@@ -24,7 +24,7 @@ spec:
                               owner:
                                   type: string
                                   description: "Project owner identifier"
-                              team:
+                              teams:
                                   type: array
                                   description: "List of team groups with access"
                                   items:
