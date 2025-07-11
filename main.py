@@ -436,12 +436,26 @@ class RBACManager(ResourceManager):
     def _get_admin_policy_rules() -> List[kubernetes.client.V1PolicyRule]:
         return [
             kubernetes.client.V1PolicyRule(
-                api_groups=["*"],
-                resources=["*"],
-                verbs=["*"]
+                api_groups=[""],
+                resources=["pods", "services", "configmaps", "secrets", "persistentvolumeclaims"],
+                verbs=["get", "list", "watch", "create", "update", "patch", "delete"]
+            ),
+            kubernetes.client.V1PolicyRule(
+                api_groups=["apps"],
+                resources=["deployments", "replicasets", "statefulsets", "daemonsets"],
+                verbs=["get", "list", "watch", "create", "update", "patch", "delete"]
+            ),
+            kubernetes.client.V1PolicyRule(
+                api_groups=["networking.k8s.io"],
+                resources=["ingresses", "networkpolicies"],
+                verbs=["get", "list", "watch", "create", "update", "patch", "delete"]
+            ),
+            kubernetes.client.V1PolicyRule(
+                api_groups=[""],
+                resources=["events"],
+                verbs=["get", "list", "watch"]
             )
-        ]
-    
+        ]    
     @staticmethod
     def _get_developer_policy_rules() -> List[kubernetes.client.V1PolicyRule]:
         return [
