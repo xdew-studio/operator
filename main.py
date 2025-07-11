@@ -698,9 +698,85 @@ class XDEWOperator:
     
     def update_project_workspace_count(self, project_id: str) -> None:
         try:
-            logger.info(f"[{project_id}] Updating workspace count")
+            logger.info(f"[project/{project_id}] Updating workspace count")
             
             workspaces = self.custom_api.list_cluster_custom_object(
+                group="xdew.ch",
+                version="v1",
+                plural="workspaces"
+            )
+            
+            count = 0
+            for ws in workspaces.get("items", []):
+                if ws.get("metadata", {}).get("deletionTimestamp"):
+                    continue
+                if ws.get("spec", {}).get("projectRef") == project_id:
+                    count += 1
+            
+            try:
+                project = self.custom_api.get_cluster_custom_object(
+                    group="xdew.ch",
+                    version="v1",
+                    plural="projects",
+                    name=project_id
+                )
+                
+                if "status" not in project:
+                    project["status"] = {}
+                
+                project["status"]["workspaceCount"] = count
+                project["status"]["lastUpdated"] = datetime.now(timezone.utc).isoformat()
+                
+                self.custom_api.patch_cluster_custom_object(
+                    group="xdew.ch",
+                    version="v1",
+                    plural="projects",
+                    name=project_id,
+                    body=project
+                )
+                
+                logger.info(f"[project/{project_id}]  ↳ Workspace count updated to {count}")
+                
+            except ApiException as api_error:
+                if api_error.status == 404:
+                    logger.warning(f"[project/{project_id}]  ↳ Project not found, skipping count update")
+                else:
+                    raise api_error
+                
+        except Exception as e:
+            logger.error(f"[project/{project_id}] Failed to update workspace count: {e}")
+    
+    def cleanup_project_workspaces(self, project_id: str) -> None:
+        try:
+            logger.info(f"[project/{project_id}] Cleaning up associated workspaces")
+            
+            workspaces = self.custom_api.list_cluster_custom_object(
+                group="xdew.ch",
+                version="v1",
+                plural="workspaces"
+            )
+            
+            count = 0
+            for ws in workspaces.get("items", []):
+                if ws.get("spec", {}).get("projectRef") == project_id:
+                    ws_name = ws["metadata"]["name"]
+                    logger.info(f"[project/{project_id}]  ↳ Deleting workspace: {ws_name}")
+                    
+                    try:
+                        self.custom_api.delete_cluster_custom_object(
+                            group="xdew.ch",
+                            version="v1",
+                            plural="workspaces",
+                            name=ws_name
+                        )
+                        count += 1
+                    except Exception as e:
+                        logger.error(f"[project/{project_id}]  ↳ Failed to delete workspace {ws_name}: {e}")
+            
+            logger.info(f"[project/{project_id}]  ↳ Cleaned up {count} workspaces")
+                        
+        except Exception as e:
+            logger.error(f"[project/{project_id}] Failed to cleanup workspaces: {e}").list_cluster_custom_object(
                 group="xdew.ch",
                 version="v1",
                 plural="workspaces"
@@ -784,7 +860,7 @@ operator = XDEWOperator()
 
 @kopf.on.create('xdew.ch', 'v1', 'projects')
 def create_project(spec, name, patch, **kwargs):
-    logger.info(f"[{name}] Creating project")
+    logger.info(f"[project/{name}] Creating project")
     
     try:
         project_name = spec.get('name')
@@ -794,7 +870,7 @@ def create_project(spec, name, patch, **kwargs):
         
         if not all([project_name, description, owner, teams]):
             message = "Missing required fields: name, description, owner, or teams"
-            logger.error(f"[{name}]  ↳ {message}")
+            logger.error(f"[project/{name}]  ↳ {message}")
             patch.status['phase'] = ProjectPhase.SUSPENDED.value
             patch.status['workspaceCount'] = 0
             patch.status['createdAt'] = datetime.now(timezone.utc).isoformat()
@@ -825,10 +901,10 @@ def create_project(spec, name, patch, **kwargs):
             }
         ]
         
-        logger.info(f"[{name}]  ↳ Project created successfully")
+        logger.info(f"[project/{name}]  ↳ Project created successfully")
         
     except Exception as e:
-        logger.error(f"[{name}]  ↳ Failed to create project: {e}")
+        logger.error(f"[project/{name}]  ↳ Failed to create project: {e}")
         timestamp = datetime.now(timezone.utc).isoformat()
         patch.status['phase'] = ProjectPhase.SUSPENDED.value
         patch.status['workspaceCount'] = 0
@@ -847,7 +923,7 @@ def create_project(spec, name, patch, **kwargs):
 
 @kopf.on.create('xdew.ch', 'v1', 'workspaces')
 def create_workspace(spec, name, patch, uid, **kwargs):
-    logger.info(f"[{name}] Creating workspace")
+    logger.info(f"[workspace/{name}] Creating workspace")
     
     try:
         project_ref = spec.get('projectRef')
@@ -873,7 +949,7 @@ def create_workspace(spec, name, patch, uid, **kwargs):
                 }
             ]
             patch.status['createdAt'] = timestamp
-            logger.warning(f"[{name}]  ↳ {message}")
+            logger.warning(f"[workspace/{name}]  ↳ {message}")
             return
         
         project_info = operator.get_project_by_id(project_ref)
@@ -892,7 +968,7 @@ def create_workspace(spec, name, patch, uid, **kwargs):
                 }
             ]
             patch.status['createdAt'] = timestamp
-            logger.warning(f"[{name}]  ↳ {message}")
+            logger.warning(f"[workspace/{name}]  ↳ {message}")
             return
         
         project_ref_obj = {
@@ -910,7 +986,7 @@ def create_workspace(spec, name, patch, uid, **kwargs):
         if not resources_spec:
             resources_spec = ResourceQuota().to_dict()
             patch.spec['resources'] = resources_spec
-            logger.info(f"[{name}]  ↳ Applied default resource quota")
+            logger.info(f"[workspace/{name}]  ↳ Applied default resource quota")
         
         timestamp = datetime.now(timezone.utc).isoformat()
         patch.status['phase'] = WorkspacePhase.PENDING.value
@@ -928,10 +1004,10 @@ def create_workspace(spec, name, patch, uid, **kwargs):
         
         operator.update_project_workspace_count(project_ref)
         
-        logger.info(f"[{name}] Workspace created in pending state")
+        logger.info(f"[workspace/{name}] Workspace created in pending state")
         
     except Exception as e:
-        logger.error(f"[{name}]  ↳ Failed to create workspace: {e}")
+        logger.error(f"[workspace/{name}]  ↳ Failed to create workspace: {e}")
         timestamp = datetime.now(timezone.utc).isoformat()
         patch.status['phase'] = WorkspacePhase.REJECTED.value
         patch.status['approvals'] = []
@@ -949,27 +1025,27 @@ def create_workspace(spec, name, patch, uid, **kwargs):
 
 @kopf.on.field('xdew.ch', 'v1', 'workspaces', field='status.phase', retries=1)
 def handle_workspace_phase_change(old, new, spec, name, uid, body, **kwargs):
-    logger.info(f"[{name}] Phase changed from {old} to {new}")
+    logger.info(f"[workspace/{name}] Phase changed from {old} to {new}")
     
     user = _extract_user_from_patch(body)
     if not user:
         user = "system"
-            
+
     should_skip_audit = False
     
-    if new == WorkspacePhase.APPROVED.value:        
+    if new == WorkspacePhase.APPROVED.value:
         should_skip_audit = operator.has_recent_audit_entry(
             name, "workspaces", "workspace-approved", "approved", 5
         )
-    elif new == WorkspacePhase.ACTIVE.value:        
+    elif new == WorkspacePhase.ACTIVE.value:
         should_skip_audit = operator.has_recent_audit_entry(
             name, "workspaces", "namespace-created", "active", 5
         )
-    elif new == WorkspacePhase.TERMINATED.value:        
+    elif new == WorkspacePhase.TERMINATED.value:
         should_skip_audit = operator.has_recent_audit_entry(
             name, "workspaces", "workspace-terminated", "terminated", 5
         )
-        
+    
     if not should_skip_audit:
         message = f"Phase manually changed to {new}"
         if user != "system":
@@ -988,7 +1064,7 @@ def handle_workspace_phase_change(old, new, spec, name, uid, body, **kwargs):
 @kopf.on.field('xdew.ch', 'v1', 'workspaces', field='status.approvals', retries=1)
 def handle_workspace_approvals_change(old, new, spec, name, body, **kwargs):
     if old != new and new:
-        logger.info(f"[{name}] Approvals updated")
+        logger.info(f"[workspace/{name}] Approvals updated")
         
         approvals = new or []
         approved_count = sum(1 for approval in approvals if approval.get("decision") == "approved")
@@ -997,7 +1073,7 @@ def handle_workspace_approvals_change(old, new, spec, name, body, **kwargs):
         current_phase = body.get("status", {}).get("phase")
         
         if approved_count > 0 and rejected_count == 0 and current_phase == WorkspacePhase.PENDING.value:
-            logger.info(f"[{name}] Auto-approving workspace based on approvals")
+            logger.info(f"[workspace/{name}] Auto-approving workspace based on approvals")
             try:
                 workspace = operator.custom_api.get_cluster_custom_object(
                     group="xdew.ch",
@@ -1017,10 +1093,10 @@ def handle_workspace_approvals_change(old, new, spec, name, body, **kwargs):
                     body=workspace
                 )
             except Exception as e:
-                logger.error(f"[{name}] Failed to auto-approve workspace: {e}")
+                logger.error(f"[workspace/{name}] Failed to auto-approve workspace: {e}")
         
         elif rejected_count > 0 and current_phase == WorkspacePhase.PENDING.value:
-            logger.info(f"[{name}] Auto-rejecting workspace based on rejections")
+            logger.info(f"[workspace/{name}] Auto-rejecting workspace based on rejections")
             try:
                 workspace = operator.custom_api.get_cluster_custom_object(
                     group="xdew.ch",
@@ -1039,16 +1115,16 @@ def handle_workspace_approvals_change(old, new, spec, name, body, **kwargs):
                     body=workspace
                 )
             except Exception as e:
-                logger.error(f"[{name}] Failed to auto-reject workspace: {e}")
+                logger.error(f"[workspace/{name}] Failed to auto-reject workspace: {e}")
 
 
 @kopf.on.field('xdew.ch', 'v1', 'workspaces', field='spec.resources', retries=1)
 def handle_resource_quota_change(old, new, spec, name, **kwargs):
     if old != new and old is not None:
-        logger.info(f"[{name}] Resource quota changed")
+        logger.info(f"[workspace/{name}] Resource quota changed")
         
         if not operator.workspace_has_resources(name):
-            logger.info(f"[{name}] No resources exist yet, quota will be applied when workspace becomes active")
+            logger.info(f"[workspace/{name}] No resources exist yet, quota will be applied when workspace becomes active")
             operator.add_audit_entry(
                 name, "workspaces", "system", "resource-quota-updated", 
                 "pending", "Resource quota updated in spec, will be applied when workspace becomes active"
@@ -1068,7 +1144,7 @@ def handle_resource_quota_change(old, new, spec, name, **kwargs):
                     "error", "Failed to update resource quota"
                 )
         except Exception as e:
-            logger.error(f"[{name}] Failed to handle quota change: {e}")
+            logger.error(f"[workspace/{name}] Failed to handle quota change: {e}")
             operator.add_audit_entry(
                 name, "workspaces", "system", "resource-quota-update-failed", 
                 "error", f"Failed to update quota: {str(e)}"
@@ -1077,7 +1153,7 @@ def handle_resource_quota_change(old, new, spec, name, **kwargs):
 
 @kopf.on.delete('xdew.ch', 'v1', 'workspaces')
 def delete_workspace(spec, name, body, **kwargs):
-    logger.info(f"[{name}] Deleting workspace")
+    logger.info(f"[workspace/{name}] Deleting workspace")
     
     try:
         project_ref = spec.get('projectRef')
@@ -1086,12 +1162,12 @@ def delete_workspace(spec, name, body, **kwargs):
         is_project_deletion = operator.is_workspace_deletion_due_to_project(body)
         
         if is_project_deletion:
-            logger.info(f"[{name}] Workspace deletion triggered by project deletion")
+            logger.info(f"[workspace/{name}] Workspace deletion triggered by project deletion")
         
         expected_resources = operator.workspace_should_have_resources(current_phase)
         
         if not expected_resources:
-            logger.info(f"[{name}] Workspace in phase '{current_phase}' should not have resources")
+            logger.info(f"[workspace/{name}] Workspace in phase '{current_phase}' should not have resources")
         
         operator.delete_workspace_resources(name, expected_to_exist=expected_resources)
         
@@ -1099,21 +1175,21 @@ def delete_workspace(spec, name, body, **kwargs):
             try:
                 time.sleep(1)
                 operator.update_project_workspace_count(project_ref)
-                logger.info(f"[{name}]  ↳ Updated workspace count for project {project_ref}")
+                logger.info(f"[workspace/{name}]  ↳ Updated workspace count for project {project_ref}")
             except Exception as count_error:
-                logger.error(f"[{name}]  ↳ Failed to update project workspace count: {count_error}")
+                logger.error(f"[workspace/{name}]  ↳ Failed to update project workspace count: {count_error}")
         elif is_project_deletion:
-            logger.info(f"[{name}]  ↳ Skipping project count update (project deleted)")
+            logger.info(f"[workspace/{name}]  ↳ Skipping project count update (project deleted)")
         
-        logger.info(f"[{name}]  ↳ Workspace deletion completed")
+        logger.info(f"[workspace/{name}]  ↳ Workspace deletion completed")
             
     except Exception as e:
-        logger.error(f"[{name}]  ↳ Failed to handle workspace deletion: {e}")
+        logger.error(f"[workspace/{name}]  ↳ Failed to handle workspace deletion: {e}")
 
 
 @kopf.on.delete('xdew.ch', 'v1', 'projects')
 def delete_project(name, **kwargs):
-    logger.info(f"[{name}] Deleting project")
+    logger.info(f"[project/{name}] Deleting project")
     
     try:
         operator.add_audit_entry(
@@ -1129,7 +1205,7 @@ def delete_project(name, **kwargs):
         )
         
     except Exception as e:
-        logger.error(f"[{name}]  ↳ Failed to handle project deletion: {e}")
+        logger.error(f"[project/{name}]  ↳ Failed to handle project deletion: {e}")
 
 @kopf.on.startup()
 def configure(settings: kopf.OperatorSettings, **_):
@@ -1165,14 +1241,15 @@ def _extract_user_from_patch(body: Dict[str, Any]) -> Optional[str]:
 
 def _handle_workspace_approval(spec, name, uid, body):
     try:
-        logger.info(f"[{name}] Processing workspace approval")
+        logger.info(f"[workspace/{name}] Processing workspace approval")
         
+        # Add specific approval audit entry
         operator.add_audit_entry(
             name, "workspaces", "system", "workspace-approved", 
             "approved", "Workspace approved for resource creation"
         )
         
-        logger.info(f"[{name}] Auto-activating approved workspace")
+        logger.info(f"[workspace/{name}] Auto-activating approved workspace")
         workspace = operator.custom_api.get_cluster_custom_object(
             group="xdew.ch",
             version="v1",
@@ -1191,7 +1268,7 @@ def _handle_workspace_approval(spec, name, uid, body):
         )
         
     except Exception as e:
-        logger.error(f"[{name}]  ↳ Failed to handle workspace approval: {e}")
+        logger.error(f"[workspace/{name}]  ↳ Failed to handle workspace approval: {e}")
         operator.add_audit_entry(
             name, "workspaces", "system", "workspace-approval-failed", 
             "error", f"Failed to process approval: {str(e)}"
@@ -1200,7 +1277,7 @@ def _handle_workspace_approval(spec, name, uid, body):
 
 def _handle_workspace_activation(spec, name, uid):
     try:
-        logger.info(f"[{name}] Processing workspace activation")
+        logger.info(f"[workspace/{name}] Processing workspace activation")
         
         project_ref = spec.get('projectRef')
         workspace_name = spec.get('name')
@@ -1256,7 +1333,7 @@ def _handle_workspace_activation(spec, name, uid):
                     body=workspace
                 )
             except Exception as e:
-                logger.error(f"[{name}] Failed to update namespace reference: {e}")
+                logger.error(f"[workspace/{name}] Failed to update namespace reference: {e}")
             
             operator.add_audit_entry(
                 name, "workspaces", "system", "namespace-created", 
@@ -1269,7 +1346,7 @@ def _handle_workspace_activation(spec, name, uid):
             )
         
     except Exception as e:
-        logger.error(f"[{name}]  ↳ Failed to handle workspace activation: {e}")
+        logger.error(f"[workspace/{name}]  ↳ Failed to handle workspace activation: {e}")
         operator.add_audit_entry(
             name, "workspaces", "system", "workspace-activation-failed", 
             "error", f"Failed to activate workspace: {str(e)}"
@@ -1278,7 +1355,7 @@ def _handle_workspace_activation(spec, name, uid):
 
 def _handle_workspace_termination(spec, name):
     try:
-        logger.info(f"[{name}] Processing workspace termination")
+        logger.info(f"[workspace/{name}] Processing workspace termination")
         
         has_resources = operator.workspace_has_resources(name)
         
@@ -1294,14 +1371,14 @@ def _handle_workspace_termination(spec, name):
                     "error", "Failed to delete workspace resources"
                 )
         else:
-            logger.info(f"[{name}] No resources found to terminate")
+            logger.info(f"[workspace/{name}] No resources found to terminate")
             operator.add_audit_entry(
                 name, "workspaces", "system", "workspace-terminated", 
                 "terminated", "Workspace terminated (no resources were created)"
             )
             
     except Exception as e:
-        logger.error(f"[{name}]  ↳ Failed to terminate workspace: {e}")
+        logger.error(f"[workspace/{name}]  ↳ Failed to terminate workspace: {e}")
         operator.add_audit_entry(
             name, "workspaces", "system", "workspace-termination-failed", 
             "error", f"Failed to terminate workspace: {str(e)}"
