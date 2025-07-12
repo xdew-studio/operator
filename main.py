@@ -190,7 +190,7 @@ class NamespaceManager(ResourceManager):
                 metadata=kubernetes.client.V1ObjectMeta(
                     name=workspace_name,
                     labels={
-                        "kubernetes.io/managed-by": "xdew-operator",
+                        "app.kubernetes.io/managed-by": "xdew-operator",
                         "xdew.ch/project": workspace_info.project_ref,
                         "xdew.ch/environment": workspace_info.environment,
                         "xdew.ch/workspace": workspace_info.workspace_id
